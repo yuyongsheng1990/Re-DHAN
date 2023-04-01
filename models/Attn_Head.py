@@ -1,0 +1,141 @@
+# -*- coding: utf-8 -*-
+# @Time : 2023/3/23 14:45
+# @Author : yysgz
+# @File : Self_Attn_Head.py
+# @Project : HAN_torch
+# @Description :
+import numpy as np
+import torch
+import torch.nn as nn
+import math
+
+class Attn_Head(nn.Module):
+    def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, activation=None, return_attn=False):
+        super(Attn_Head, self).__init__()
+        # self.bias_mat = bias_mat  # (3025,3025)
+        self.feat_drop = feat_drop  # 0.0
+        self.attn_drop = attn_drop  # 0.5
+        self.return_attn = return_attn
+        self.conv1 = nn.Conv1d(in_channel, out_sz, 1, bias=False)  # (233,8)
+        self.conv2_1 = nn.Conv1d(out_sz, 1, 1, bias=False)  # (8,1)
+        self.conv2_2 = nn.Conv1d(out_sz, 1, 1, bias=False)  # (8,1)
+        self.leakyrelu = nn.LeakyReLU()
+        self.softmax = nn.Softmax(dim=1)
+        self.feat_dropout = nn.Dropout(feat_drop)
+        self.attn_dropout = nn.Dropout(attn_drop)
+        self.activation = activation
+
+    def forward(self, x, bias_mx, device):  # (100, 233); bias_mx, 残差, (100, 100)
+        seq = x.float().to(device)
+        if self.feat_drop != 0.0:
+            seq = self.feat_dropout(x)  # 以rate置0
+            seq = seq.float()
+        # reshape x and bias_mx for nn.Conv1d, (1, 233, 100)
+        seq = torch.transpose(seq[np.newaxis], 2, 1).to(device)  # (1, 233, 100)
+        bias_mx = bias_mx[np.newaxis]
+        seq_fts = self.conv1(seq)  # 一维卷积操作, out: (1, 8, 100)
+
+        f_1 = self.conv2_1(seq_fts)  # (1, 1, 100)
+        f_2 = self.conv2_2(seq_fts)  # (1, 1, 100)
+
+        logits = f_1 + torch.transpose(f_2, 2, 1)  # 转置 (1, 100, 100)
+        logits = self.leakyrelu(logits)
+
+        attns = self.softmax(logits + bias_mx.float())  # add残差, (1, 100, 100)
+
+        if self.attn_drop != 0.0:
+            attns = self.attn_dropout(attns)
+        if self.feat_drop != 0.0:
+            seq_fts = self.feat_dropout(seq_fts)
+
+        ret = torch.matmul(attns, torch.transpose(seq_fts, 2, 1))  # (1, 100, 8)
+
+        if self.return_attn:
+            return self.activation(ret), attns
+        else:
+            return self.activation(ret)  # activation
+
+class Self_Attn_Head(nn.Module):
+    def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, activation=None, return_attn=False):
+        super(Self_Attn_Head, self).__init__()
+        # self.bias_mat = bias_mat  # (3025,3025)
+        self.out_sz = out_sz
+        self.feat_drop = feat_drop  # 0.0
+        self.attn_drop = attn_drop  # 0.5
+        self.return_attn = return_attn
+        self.conv1 = nn.Conv1d(in_channel, out_sz, 1, bias=False)  # (233,8)
+        self.conv2_1 = nn.Conv1d(out_sz, 1, 1, bias=False)  # (8,1)
+        self.conv2_2 = nn.Conv1d(out_sz, 1, 1, bias=False)  # (8,1)
+        self.leakyrelu = nn.LeakyReLU()
+        self.softmax = nn.Softmax(dim=1)
+        self.feat_dropout = nn.Dropout(feat_drop)
+        self.attn_dropout = nn.Dropout(attn_drop)
+        self.activation = activation
+
+    def forward(self, x, bias_mx, device):  # (100, 233); bias_mx, 残差, (100, 100)
+        seq = x.float().to(device)
+        if self.feat_drop != 0.0:
+            seq = self.feat_dropout(x)  # 以rate置0
+            seq = seq.float()
+        # reshape x and bias_mx for nn.Conv1d, (1, 233, 100)
+        seq = torch.transpose(seq[np.newaxis], 2, 1)  # (1, 233, 100)
+        bias_mx = bias_mx[np.newaxis].to(device)
+        seq_v = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 8, 100)
+
+        seq_q = self.conv2_1(seq)  # x*Wq=q,(1, 1, 100)
+        seq_k = self.conv2_2(seq)  # x*Wk=k, (1, 1, 100)
+
+        logits = torch.matmul(torch.transpose(seq_q, 2, 1), seq_k)  # 转置 (1, 100, 100)
+        logits = torch.div(logits, math.sqrt(self.out_sz))  # scaled, 放缩除以跟下dk
+
+        attns = self.softmax(logits + bias_mx.float())  # add残差, (1, 100, 100)
+
+        if self.attn_drop != 0.0:
+            attns = self.attn_dropout(attns)
+        if self.feat_drop != 0.0:
+            seq_v = self.feat_dropout(seq_v)
+
+        ret = torch.matmul(attns, torch.transpose(seq_v, 2, 1))  # (1, 100, 8)
+
+        if self.return_attn:
+            return self.activation(ret), attns
+        else:
+            return self.activation(ret)  # activation
+
+class SimpleAttnLayer(nn.Module):
+    def __init__(self, inputs, attn_size, time_major=False, return_alphas=False):  # inputs, 64; attention_size,128; return_alphas=True
+        super(SimpleAttnLayer, self).__init__()
+        self.hidden_size = inputs  # 64
+        self.return_alphas = return_alphas  # True
+        self.time_major = time_major
+        self.w_omega = nn.Parameter(torch.Tensor(self.hidden_size, attn_size))  # (64, 128)
+        self.b_omega = nn.Parameter(torch.Tensor(attn_size))  # (128,)
+        self.u_omega = nn.Parameter(torch.Tensor(attn_size, 1))  # (128,)
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim=1)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.w_omega)
+        nn.init.zeros_(self.b_omega)
+        nn.init.xavier_uniform_(self.u_omega)
+
+    def forward(self, x):  # (100,2,64)
+        '''
+        inputs: tensor, (3025, 64)
+        attention_size: 128
+        '''
+        if isinstance(x, tuple):
+            # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
+            inputs = torch.concat(x, 2)  # 表示在shape第2个维度上拼接
+
+        v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128)
+        vu = torch.matmul(v, self.u_omega)  # (100,2,1)
+        alphas = self.softmax(vu)
+
+        output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
+
+        if not self.return_alphas:
+            return output
+        else:
+            return output, alphas  # attention输出、softmax概率
