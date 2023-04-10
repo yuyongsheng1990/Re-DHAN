@@ -15,7 +15,7 @@ class NCECriterion(nn.Module):
         super(NCECriterion, self).__init__()
         self.nce_m = nce_m
         self.eps = eps
-        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=0)
 
     def forward(self, x, labels):
@@ -30,7 +30,7 @@ class NCECriterion(nn.Module):
         pred_prob = self.softmax(prob)
         true_prob = self.softmax(labels.float())
 
-        # 随机取两个向量v和v', 计算后验概率 h(i,v) = Pmt / (Pmt + k*Pnt)
+        # 随机取两个向量v和v', 计算后验概率 h(i,v) = Pmt / (Pmt + m*Pnt)
         v_1_idx = random.randint(0, batch_size-1)
         v_2_idx = random.randint(0, batch_size-1)
 
@@ -41,9 +41,13 @@ class NCECriterion(nn.Module):
         Pnt_2 = Pmt_2.add(self.nce_m / batch_size)
         h_2 = torch.div(Pmt_2, Pnt_2)
 
+        # 为了避免出现nan、inf，对后验概率做sigmoid激活，(0,1) -> 去除0影响。
+        h_1_ac = self.sigmoid(h_1)
+        h_2_ac = self.sigmoid(h_2)
+
         # 取对数
-        h_1_log = torch.log(h_1)
-        h_2_log = torch.log(1 - h_2)
+        h_1_log = torch.log(h_1_ac)
+        h_2_log = torch.log(1 - h_2_ac)
 
         # calculate expectation
         Expection_1 = torch.matmul(true_prob, h_1_log)  # (100,) * (100,) = -4.9336
