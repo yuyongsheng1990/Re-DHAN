@@ -178,19 +178,19 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
     if model is None:  # pre-training stage in our paper
         # print('Pre-Train Stage...')
-        # HAN_0 model without RL_filter and Neighbor_sampler
-        relations_mx_list = relations_to_adj(multi_r_data, nb_nodes=num_dim)
-        biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
-                              feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,
-                              bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
-
-        # # HAN_1 model with RL_filter and no Neighbor_sampler
-        # relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)
+        # # HAN_0 model without RL_filter and Neighbor_sampler
+        # relations_mx_list = relations_to_adj(multi_r_data, nb_nodes=num_dim)
         # biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
         # model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
         #                       feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,
         #                       bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
+
+        # HAN_1 model with RL_filter and no Neighbor_sampler
+        relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)
+        biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
+        model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+                              feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,
+                              bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
 
         # # HAN_2 model with RL_filter and Neighbor_sampler，这要torch_geometric重写HAN模型，要不然用不上FinEvent中的neighbor_sampler.
         # # 所以，既要用到adjs_list for RL_sampler，也要用到bias_list for HAN algorithm.
