@@ -212,7 +212,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
     model.to(device)
 
     # define NCE Loss
-    # loss_fn = NCECriterion(args.nce_m, args.nce_eps)
+    loss_fn = NCECriterion(args.nce_m, args.nce_eps)
     # define optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
