@@ -76,8 +76,8 @@ class HeteGAT_multi(nn.Module):
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding
-        final_embed, att_val = self.simpleAttnLayer(multi_embed)  # (100, 64)
-        # final_embed = torch.mul(multi_embed, RL_thresholds).reshape(len(batch_nodes), -1)
+        # final_embed, att_val = self.simpleAttnLayer(multi_embed)  # (100, 64)
+        final_embed = torch.mul(multi_embed, RL_thresholds).reshape(len(batch_nodes), -1)
         # out = []
         # # 添加一个全连接层做预测(final_embedding, prediction) -> (100, 3)
         # out.append(self.fc(final_embed))
