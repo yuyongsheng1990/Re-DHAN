@@ -37,8 +37,8 @@ class HeteGAT_multi_geometirc(nn.Module):
         # self.residual = residual
 
         self.layers = self._make_attn_head()
-        # self.w_multi = nn.Linear(out_dim, out_dim)
-        self.w_multi = nn.Conv1d(out_dim, out_dim, 1, bias=False)  # (64,64)
+        self.w_multi = nn.Linear(out_dim, out_dim)
+        # self.w_multi = nn.Conv1d(out_dim, out_dim, 1, bias=False)  # (64,64)
 
         self.simpleAttnLayer = SimpleAttnLayer(out_dim, hid_dim, time_major=False, return_alphas=True)  # 64, 128
         self.fc = nn.Linear(64, nb_classes)  # 64, 3
@@ -80,9 +80,9 @@ class HeteGAT_multi_geometirc(nn.Module):
                 attns.append(self.layers[i][n](feature_embedding[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device))
 
             h_1 = torch.cat(attns, dim=-1)  # shape=(1, 100, 64)
-            # h_1_trans = self.w_multi(h_1)  # with nn.Linear transformation
-            h_1_trans = self.w_multi(torch.transpose(h_1, 2, 1))  # with nn.Conv1d transformation
-            h_1_trans = torch.transpose(h_1_trans, 2, 1)
+            h_1_trans = self.w_multi(h_1)  # with nn.Linear transformation
+            # h_1_trans = self.w_multi(torch.transpose(h_1, 2, 1))  # with nn.Conv1d transformation
+            # h_1_trans = torch.transpose(h_1_trans, 2, 1)
             embed_list.append(torch.transpose(h_1_trans, 1, 0))  # list:2. 其中每个元素tensor, (100, 1, 64)
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
