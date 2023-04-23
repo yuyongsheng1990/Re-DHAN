@@ -20,7 +20,8 @@ from typing import List
 import os
 project_path = os.getcwd()
 
-from layers.S2_TripletLoss import OnlineTripletLoss, HardestNegativeTripletSelector, RandomNegativeTripletSelector
+from layers.S2_TripletLoss import OnlineTripletLoss, HardestNegativeTripletSelector, RandomNegativeTripletSelector, \
+    FunctionNPairLoss
 from layers.NCELoss import NCECriterion
 from layers.S3_NeighborRL import cal_similarity_node_edge, RL_neighbor_filter
 from baselines.MarGNN import MarGNN
@@ -539,7 +540,8 @@ if __name__ == '__main__':
         loss_fn = OnlineTripletLoss(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss
     else:
         loss_fn = OnlineTripletLoss(args.margin, RandomNegativeTripletSelector(args.margin))
-
+    # N_pair_loss
+    # loss_fn = FunctionNPairLoss(args.margin)
     # define metrics
     BCL_metrics = [AverageNonzeroTripletsMetric()]
     # define detection stage

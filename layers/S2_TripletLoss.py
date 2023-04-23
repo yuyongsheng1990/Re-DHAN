@@ -144,6 +144,144 @@ class FunctionNegativeTripletSelector(TripletSelector):
         triplets = np.array(triplets)  # (179, 3)
         return torch.LongTensor(triplets)
 
+# 具体N_pair loss，一个正例，N-1个负例，i-th到其他标签的距离，计算量2N
+class FunctionNPairLoss(nn.Module):
+    '''
+    For each positive pair, takes the hardest negative sample (with the greatest triplet loss value) to create a triplet
+    Margin should match the margin used in triplet loss.
+    negative_selection_fn should take array of loss_values for a given anchor-positive pair and all negative samples
+    and return a negative index for that pair
+    '''
+
+    def __init__(self, margin, cpu=True):
+        super(FunctionNPairLoss, self).__init__()
+        self.cpu = cpu
+        self.margin = margin
+
+    def forward(self, embeddings, labels):  # (100, 192); target, (100, )
+        if self.cpu:
+            embeddings = embeddings.cpu()
+        distance_matrix = distance_matrix_computation(embeddings)  # pre embedding计算distance matrix (100, 100)
+        distance_matrix = distance_matrix.cpu()
+
+        labels = labels.cpu().data.numpy()  # 100
+        triplets = []
+
+        # embedding计算的distance matrix与labels计算loss，取最大loss_index
+        # 对于每个标签label
+        n_pair_loss_list = []
+        for label in set(labels):
+            label_mask = (labels == label)  # numpy array, (100,), ([True, False, True, True])
+            label_indices = np.where(label_mask)[0]  # 同一标签索引, label_index, (3, ) array([0, 2, 3], dtype=int64)
+            if len(label_indices) < 2:
+                continue
+            negative_indices = np.where(np.logical_not(label_mask))[0]  # (97, ), 其他标签索引,作为负样本 ndarray
+            anchor_pos_list = list(combinations(label_indices, 2))  # 2个元素的标签索引组合, list: 3, [(23, 66), (23, 79), (66, 79)]
+            anchor_pos_list = np.array(anchor_pos_list)  # 转换成np.array才能进行slice切片操作, (3, 2)
+
+            # 按照anchor_positive index从距离矩阵中抽取distance；0-index，array([0, 0, 2]);
+            # 从distance_matrix中提取标签label的i-element与j-element距离。
+            anchor_p_distances = distance_matrix[
+                anchor_pos_list[:, 0], anchor_pos_list[:, 1]]  # 同一label不同位置之间的距离distance, (3, ),tensor([-1.1761,-0.8381,0.0099])，这样计算两个正例一个负例的距离->triplet loss
+            loss_list = []
+            for anchor_positive, ap_distance in zip(anchor_pos_list, anchor_p_distances):  # 每个标签下，元素组合、元素距离
+                # 0表示ith元素到各个其他标签元素的距离。
+                # 同一标签下(ith,jth)距离 - ith元素到其他标签元素的距离 + self.margin边际收益
+                loss_values = distance_matrix[  # loss_values, (97, ); ap_distance是同一label第一个位置到第二个位置的距离
+                    torch.LongTensor(np.array([anchor_positive[0]])), torch.LongTensor(negative_indices)] - ap_distance  # anchor_positive, (2, ) [23, 66]; label第一个位置到其他label位置的距离
+                loss_value = torch.exp(loss_values).sum() + 1  # (97, )
+                # n_pair_loss = loss_values.sum()  # torch.mean(torch.unsqueeze(loss_values, 0), 1)
+                loss_list.append(torch.log(loss_value))  # 转换为torch
+            n_pair_loss_list.append(torch.FloatTensor(loss_list).mean())
+        n_pair_loss_value = torch.FloatTensor(n_pair_loss_list).mean()
+        return n_pair_loss_value.requires_grad_(True), len(n_pair_loss_list)
+
+class NPairLoss(nn.Module):
+    """
+    N-Pair loss
+    Sohn, Kihyuk. "Improved Deep Metric Learning with Multi-class N-pair Loss Objective," Advances in Neural Information
+    Processing Systems. 2016.
+    https://github.com/leeesangwon/PyTorch-Image-Retrieval/blob/b473b9fb7ab0e90838fecca03d8b4f58ede13049/losses.py#L99
+    http://papers.nips.cc/paper/6199-improved-deep-metric-learning-with-multi-class-n-pair-loss-objective
+    """
+
+    def __init__(self, l2_reg=0.02):
+        super(NPairLoss, self).__init__()
+        self.l2_reg = l2_reg
+
+    def forward(self, embeddings, target):
+        n_pairs, n_negatives = self.get_n_pairs(target)
+
+        if embeddings.is_cuda:
+            n_pairs = n_pairs.cuda()
+            n_negatives = n_negatives.cuda()
+
+        anchors = embeddings[n_pairs[:, 0]]    # (n, embedding_size)
+        positives = embeddings[n_pairs[:, 1]]  # (n, embedding_size)
+        negatives = embeddings[n_negatives]    # (n, n-1, embedding_size)
+
+        losses = self.n_pair_loss(anchors, positives, negatives) \
+            + self.l2_reg * self.l2_loss(anchors, positives)
+
+        return losses, len(n_pairs)
+
+    @staticmethod
+    def get_n_pairs(labels):
+        """
+        Get index of n-pairs and n-negatives
+        :param labels: label vector of mini-batch
+        :return: A tuple of n_pairs (n, 2)
+                        and n_negatives (n, n-1)
+        """
+        labels = labels.cpu().data.numpy()
+        n_pairs = []
+
+        for label in set(labels):
+            label_mask = (labels == label)
+            label_indices = np.where(label_mask)[0]
+            if len(label_indices) < 2:
+                continue
+            anchor, positive = np.random.choice(label_indices, 2, replace=False)
+            n_pairs.append([anchor, positive])
+
+        n_pairs = np.array(n_pairs)
+
+        n_negatives = []
+        for i in range(len(n_pairs)):
+            negative = np.concatenate([n_pairs[:i, 1], n_pairs[i+1:, 1]])
+            n_negatives.append(negative)
+
+        n_negatives = np.array(n_negatives)
+
+        return torch.LongTensor(n_pairs), torch.LongTensor(n_negatives)
+
+    @staticmethod
+    def n_pair_loss(anchors, positives, negatives):
+        """
+        Calculates N-Pair loss
+        :param anchors: A torch.Tensor, (n, embedding_size)
+        :param positives: A torch.Tensor, (n, embedding_size)
+        :param negatives: A torch.Tensor, (n, n-1, embedding_size)
+        :return: A scalar
+        """
+        anchors = torch.unsqueeze(anchors, dim=1)  # (n, 1, embedding_size)
+        positives = torch.unsqueeze(positives, dim=1)  # (n, 1, embedding_size)
+
+        x = torch.matmul(anchors, (negatives - positives).transpose(1, 2))  # (n, 1, n-1)
+        x = torch.sum(torch.exp(x), 2)  # (n, 1)
+        loss = torch.mean(torch.log(1+x))
+        return loss
+
+    @staticmethod
+    def l2_loss(anchors, positives):
+        """
+        Calculates L2 norm regularization loss
+        :param anchors: A torch.Tensor, (n, embedding_size)
+        :param positives: A torch.Tensor, (n, embedding_size)
+        :return: A scalar
+        """
+        return torch.sum(anchors ** 2 + positives ** 2) / anchors.shape[0]
+
 # random，随机抽取一个非零实数
 def random_hard_negative(loss_values):
     hard_negatives = np.where(loss_values > 0)[0]
