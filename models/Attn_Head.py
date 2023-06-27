@@ -33,10 +33,10 @@ class Attn_Head(nn.Module):
         # reshape x and bias_mx for nn.Conv1d, (1, 233, 100)
         seq = torch.transpose(seq[np.newaxis], 2, 1).to(device)  # (1, 233, 100)
         bias_mx = bias_mx[np.newaxis]
-        seq_fts = self.conv1(seq)  # 一维卷积操作, out: (1, 8, 100)
+        seq_fts = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 8, 100)
 
-        f_1 = self.conv2_1(seq_fts)  # (1, 1, 100)
-        f_2 = self.conv2_2(seq_fts)  # (1, 1, 100)
+        f_1 = self.conv2_1(seq_fts)  # x*Wq=q,(1, 1, 100)
+        f_2 = self.conv2_2(seq_fts)  # x*Wk=k, (1, 1, 100)
 
         logits = f_1 + torch.transpose(f_2, 2, 1)  # 转置 (1, 100, 100)
         logits = self.leakyrelu(logits)
@@ -122,6 +122,7 @@ class SimpleAttnLayer(nn.Module):
 
     def forward(self, x):  # (100,2,64)
         '''
+        这是一个点积dot-product attention
         inputs: tensor, (3025, 64)
         attention_size: 128
         '''
@@ -129,8 +130,8 @@ class SimpleAttnLayer(nn.Module):
             # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
             inputs = torch.concat(x, 2)  # 表示在shape第2个维度上拼接
 
-        v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128)
-        vu = torch.matmul(v, self.u_omega)  # (100,2,1)
+        v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128) 作为attention q
+        vu = torch.matmul(v, self.u_omega)  # (100,2,1) qk相乘得一维相似度向量
         alphas = self.softmax(vu)
 
         output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)

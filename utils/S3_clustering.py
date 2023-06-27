@@ -50,3 +50,25 @@ def run_kmeans(extract_features, extract_labels, indices, isoPath=None):
 
     # Return number of test tweets, number of classes covered by the test tweets, and KMeans clustering NMI
     return n_test_tweets, n_classes, nmi, ami, ari
+
+# 用softmax分类
+def run_softmax(extract_features, extract_labels, indices, isoPath=None):
+    # extract the features and labels of the test tweets
+    if isoPath is not None:
+        # Remove isolated points
+        temp = torch.load(isoPath)
+        temp = temp.cpu().detach().numpy()  # detach()阻断反向传播，返回值为tensor；numpy()将tensor转换为numpy
+        non_isolated_index = list(np.where(temp != 1)[0])  # np.where返回符合条件元素的索引index
+        indices = intersection(indices, non_isolated_index)  # 取交集
+    # Extract labels
+    extract_labels = extract_labels.cpu().numpy()
+    labels_true = extract_labels[indices]  # (952,)
+
+    # Extrac features
+    X = extract_features.cpu().detach().numpy()  # (952, 192)
+    assert labels_true.shape[0] == X.shape[0]  # assert断言，在判断式false时触发异常
+    n_test_tweets = X.shape[0]  # 952
+
+    # Get the total number of classes
+    n_classes = len(set(labels_true.tolist()))  # 49, unique()和nunique()不香吗？
+

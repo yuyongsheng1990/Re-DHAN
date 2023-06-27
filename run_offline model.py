@@ -322,11 +322,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
             c_aug_1 = nn.Sigmoid()(torch.mean(h_aug_1, 0))  # (64,)
             c_aug_2 = nn.Sigmoid()(torch.mean(h_aug_2, 0))
             # discriminator
-            ret_1 = gcl_disc(c_aug_1, h_pos, h_neg)  # (100, 384)
+            ret_1 = gcl_disc(c_aug_1, h_pos, h_neg)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
             ret_2 = gcl_disc(c_aug_2, h_pos, h_neg)  # (100, 384)
             ret = ret_1 + ret_2
                 # logits, (1,6654)
-            gcl_loss = gcl_loss_fn(ret, lbl)
+            gcl_loss = gcl_loss_fn(ret, lbl)  # lbl, (1,128)
             # """
             '''------------------两个loss加权求和---------------------------'''
             if gcl_loss is not None:

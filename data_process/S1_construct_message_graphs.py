@@ -180,6 +180,7 @@ def dgl_hetegraph_to_homograph(G, save_path=None):
     '''
     将meta-path: tweet-user-tweet转换成tweet-tweet矩阵，这样才能得到tweet_id0的直接邻居节点tweet_id1,2,3...，不用再隔着user关系。
     '''
+
     s_m_tid_userid_tid = s_w_tid_userid * s_w_userid_tid  # 根据user_id生成tweet_id homogeneous message graph, (4762, 4762)
     mins = (time() - start) / 60
     print('\t\t\tDone. Time elapsed: ', mins, ' mins\n')
