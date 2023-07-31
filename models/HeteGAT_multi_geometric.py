@@ -13,7 +13,7 @@ from layers.S1_GAT_Model import Intra_AGG
 from models.Attn_Head import Attn_Head, Self_Attn_Head, SimpleAttnLayer
 
 
-class HeteGAT_multi_geometirc(nn.Module):
+class HeteGAT_multi_geometric(nn.Module):
     '''
     inputs_list=feas_list, nb_classes=nb_classes, nb_nodes=nb_nodes, attn_drop=0.5,
                               ffd_drop=0.0, biases_list=biases_list, hid_units=args.hid_units, n_heads=args.n_heads,
@@ -22,7 +22,7 @@ class HeteGAT_multi_geometirc(nn.Module):
     '''
     def __init__(self, feature_size, nb_classes, nb_nodes, attn_drop, feat_drop, hid_dim, out_dim,
                  bias_mx_len, hid_units, n_heads, activation=nn.ELU()):
-        super(HeteGAT_multi_geometirc, self).__init__()
+        super(HeteGAT_multi_geometric, self).__init__()
         self.feature_size = feature_size  # list:3, (4762, 300)
         self.nb_classes = nb_classes  # 3
         self.nb_nodes = nb_nodes  # 4762
