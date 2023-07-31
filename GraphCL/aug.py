@@ -48,8 +48,43 @@ def aug_subgraph(input_fea, input_bias_list, drop_percent=0.2):  # (4286,302); l
 
     return aug_input_fea_list, aug_input_bias_list, aug_sub_node_list  # 抽取子图node features和adjs
 
+# edge perturbations
+def aug_edge_perturbation(input_adj, drop_percent=0.2):
 
+    # input_edge_bias_list = []
+    #
+    # for b in range(len(input_adj_list)):
+    #     input_adj = input_adj_list[b]  # (100, 100)
+    zero_idx = torch.nonzero(input_adj == 0)
+    nonzero_idx = torch.nonzero(input_adj)  # tensor(9620, 2)
 
+    # drop edges
+    nonzero_edge_num = int(nonzero_idx.size(0) / 2)  # 4864
+    drop_num = int(nonzero_edge_num * drop_percent)  # 972
+    edge_index_list = [i for i in range(nonzero_edge_num)]
+    drop_index_list = random.sample(edge_index_list, drop_num)  # 获取扔掉的索引列表, list: 4864.
+    for i in drop_index_list:
+        # fetch edge idx
+        drop_edge_idx = nonzero_idx[i]  # tensor([9, 83])
+        # 重置为0
+        input_adj[drop_edge_idx[0], drop_edge_idx[1]] = 0
+        input_adj[drop_edge_idx[1], drop_edge_idx[0]] = 0
+
+    # add edges
+    zero_edge_num = int(zero_idx.size(0) / 2)  # 153
+    add_num = int(zero_edge_num * drop_percent)  # 30
+    edge_index_list = [i for i in range(zero_edge_num)]
+    add_index_list = random.sample(edge_index_list, add_num)
+    for i in add_index_list:
+        # fetch add edge idx
+        add_edge_idx = zero_idx[i]  # tensor([1, 68])
+        # 重置为1
+        input_adj[add_edge_idx[0], add_edge_idx[1]] = 1
+        input_adj[add_edge_idx[1], add_edge_idx[0]] = 1
+
+        # input_edge_bias_list.append(input_adj)
+
+    return input_adj
 
 
 def delete_row_col(input_matrix, drop_list, only_row=False):

@@ -24,6 +24,7 @@ from layers.S2_TripletLoss import OnlineTripletLoss, HardestNegativeTripletSelec
     FunctionNPairLoss
 from layers.NCELoss import NCECriterion
 from layers.S3_NeighborRL import cal_similarity_node_edge, RL_neighbor_filter
+from layers.S4_Global_localGCL import GlobalLocalGraphContrastiveLoss
 from baselines.MarGNN import MarGNN
 
 from utils.S2_gen_dataset import create_offline_homodataset, create_multi_relational_graph, MySampler, save_embeddings
@@ -36,7 +37,7 @@ from GraphCL import aug, discriminator
 def args_register():
     parser = argparse.ArgumentParser()  # 创建参数对象
     # 添加参数
-    parser.add_argument('--n_epochs', default=5, type=int, help='Number of initial-training/maintenance-training epochs.')
+    parser.add_argument('--n_epochs', default=50, type=int, help='Number of initial-training/maintenance-training epochs.')
     parser.add_argument('--window_size', default=3, type=int, help='Maintain the model after predicting window_size blocks.')
     parser.add_argument('--patience', default=5, type=int,
                         help='Early stop if perfermance did not improve in the last patience epochs.')
@@ -57,7 +58,8 @@ def args_register():
     parser.add_argument('--is_initial', default=True)
     parser.add_argument('--sampler', default='RL_sampler')
     parser.add_argument('--cluster_type', default='kmeans', help='Types of clustering algorithms')  # DBSCAN
-    parser.add_argument('--time_lambda', default= 0.2, type=float, help='The hyperparameter of time exponential decay')  # 时间衰减参数 lambda
+    parser.add_argument('--time_lambda', default= 0.2, type=float, help='The hyperparameter of time exponential decay')  # DHAN 时间衰减参数 lambda
+    parser.add_argument('--gl_eps', default=2, type=float, help='the temperature param for global-local GCL function')
 
     # RL-0，第一个强化学习是learn the optimal neighbor weights
     parser.add_argument('--threshold_start0', default=[[0.2], [0.2], [0.2]], type=float,
@@ -85,7 +87,9 @@ def args_register():
     # format: './incremental_0808/incremental_graphs_0808/embeddings_XXXX'
     parser.add_argument('--log_interval', default=10, type=int, help='Log interval')
     # subgraph contrastive loss和triplet loss加权概率
-    parser.add_argument('--loss_p', default=0.8, type=float, help='A percent value used to weighted add triplet loss and subgraph contrastive loss')
+    parser.add_argument('--loss_p', default=0.8, type=float, help='A percent value of triplet loss used for loss optimization')
+    parser.add_argument('--loss_s', default=0.5, type=float, help='A percent value of GraphCL loss used for loss optimization')
+    parser.add_argument('--loss_g', default=0.5, type=float, help='A percent value of global-local GCL loss used for loss optimization')
     args = parser.parse_args(args=[])  # 解析参数
 
     return args
@@ -230,10 +234,13 @@ def offline_FinEvent_model(train_i,  # train_i=0
     best_epoch = 0
     wait = 0
     gcl_loss_fn = nn.BCEWithLogitsLoss()
+    gl_loss_fn = GlobalLocalGraphContrastiveLoss(args.gl_eps)
     gcl_dropout_percent = 0.1
     gcl_disc = discriminator.Discriminator(args.out_dim)
     gcl_loss = None
-    loss_p = args.loss_p  # loss加权概率
+    loss_p = args.loss_p  # triplet loss加权概率
+    loss_s = args.loss_s  # GraphCL loss 加权概率
+    loss_g = args.loss_g  # global-local GCL loss 加权概率
 
     # data.train_mask, data.val_mask, data.test_mask = gen_offline_masks(len(labels))
     train_num_samples, valid_num_samples, test_num_samples = homo_data.train_mask.size(0), homo_data.val_mask.size(
@@ -249,6 +256,9 @@ def offline_FinEvent_model(train_i,  # train_i=0
     seconds_train_batches = []
     # step12.3: record the time spent in mins on each epoch
     mins_train_epochs = []
+    # edge perturbations
+    aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
+    aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
 
     # step13: start training------------------------------------------------------------
     print('----------------------------------training----------------------------')
@@ -288,12 +298,12 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
             loss_outputs = loss_fn(pred, batch_labels)  # (12.8063), 179
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs
-            """
-            '''----------GraphCL 对比学习-------------------------'''
+            # """
+            '''----------GraphCL loss function with subgraph augmentation-------------------------'''
             # subgraph sampling
             batch_features = homo_data.x[batch_nodes]
             batch_biases_mat_list = [biases[batch_nodes][:,batch_nodes] for biases in biases_mat_list]
-            aug_fts_list1, aug_bias_list1, aug_sub_node_list1 = aug.aug_subgraph(batch_features, batch_biases_mat_list, drop_percent=gcl_dropout_percent)
+            aug_fts_list1, aug_bias_list1, aug_sub_node_list1 = aug.aug_subgraph(batch_features, batch_biases_mat_list, drop_percent=gcl_dropout_percent)  # subgraph
             aug_fts_list2, aug_bias_list2, aug_sub_node_list2 = aug.aug_subgraph(batch_features, batch_biases_mat_list, drop_percent=gcl_dropout_percent)
             # 归一化normalization
             gcl_biases_mat_list = [aug.normalize_adj(adj + np.eye(adj.shape[0])) for adj in biases_mat_list]  # 原始adj matrix做归一化normalize, ndarray, (3327,3327)
@@ -302,24 +312,24 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # negative samples
             features_neg = homo_data.x.clone()  # shuffled tensor
             features_neg = features_neg[torch.randperm(features_neg.shape[0])]
-            features_neg_list = [features_neg,features_neg,features_neg]
+            features_neg_list = [features_neg, features_neg, features_neg]
             # 构建标签label
             lbl_1 = torch.ones(1, args.out_dim)  # labels for aug_1, (1,192)
             lbl_2 = torch.zeros(1, args.out_dim)  # (1,192)
             lbl = torch.cat((lbl_1, lbl_2), 1)  # (1,128)
             # 基于data augmentation生成关于original features和shuffled features的embedding
-            # h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1计算正样本 positive feature embeddings, (100, 64)
-            # h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings
-            h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2计算正样本 positive feature embeddings, (100, 64)
-            h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2构建负样本 negative feature embeddings
+            h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1计算正样本 positive feature embeddings, (100, 64)
+            h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings
+            # h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2计算正样本 positive feature embeddings, (100, 64)
+            # h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2构建负样本 negative feature embeddings
             # 构建subgraph augmentation embedding
-            # h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, device, RL_thresholds)  # HAN_0/HAN_1 构建 subgraph augmentation embeddings, (90, 64)
-            # h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, device, RL_thresholds)  # HAN_0/HAN_1 计算正样本 subgraph augmentation embeddings
-            aug_adjs, aug_n_ids = sampler.sample(sparse_trans(aug_bias_list1),
-                                                 node_idx=aug_sub_node_list1[0], sizes=[-1, -1],
-                                                 batch_size=aug_fts_list1[0].shape[0])  # RL_sampler from aug_adj for HAN_2
-            h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
-            h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
+            h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, device, RL_thresholds)  # HAN_0/HAN_1 构建 subgraph augmentation embeddings, (90, 64)
+            h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, device, RL_thresholds)  # HAN_0/HAN_1 计算正样本 subgraph augmentation embeddings
+            # aug_adjs, aug_n_ids = sampler.sample(sparse_trans(aug_bias_list1),
+            #                                      node_idx=aug_sub_node_list1[0], sizes=[-1, -1],
+            #                                      batch_size=aug_fts_list1[0].shape[0])  # RL_sampler from aug_adj for HAN_2
+            # h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
+            # h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             # readout
             c_aug_1 = nn.Sigmoid()(torch.mean(h_aug_1, 0))  # (64,)
             c_aug_2 = nn.Sigmoid()(torch.mean(h_aug_2, 0))
@@ -328,11 +338,17 @@ def offline_FinEvent_model(train_i,  # train_i=0
             ret_2 = gcl_disc(c_aug_2, h_pos, h_neg)  # (100, 384)
             ret = ret_1 + ret_2
                 # logits, (1,6654)
-            gcl_loss = gcl_loss_fn(ret, lbl)  # lbl, (1,128)
+            gcl_loss = gcl_loss_fn(ret, lbl)  # ret, (1,128); lbl, (1,128)
+            '''-------------global-local GCL with edge perturbations'''
+            # 取出train_dataset中，batch_label对应的input vectors,将其转换为node embeddings,但太费labelled data！不现实，应用性太差了！
+            # solution: 还是将edge perturbation的 nodes作为 information减少的local nodes
+            h_global = pred.clone()
+            h_local = model(features_list, aug_edge_biases_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings, (100, 64)
+            gl_loss = gl_loss_fn(h_global, h_local, batch_labels)
             # """
-            '''------------------两个loss加权求和---------------------------'''
+            '''------------------三个loss加权求和---------------------------'''
             if gcl_loss is not None:
-                loss = loss * loss_p + gcl_loss * (1-loss_p)
+                loss = loss_p * loss + loss_s * gcl_loss + loss_g * gl_loss
             losses.append(loss.item())
             total_loss += loss.item()
 
