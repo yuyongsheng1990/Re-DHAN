@@ -197,10 +197,10 @@ class SimpleAttnLayer(nn.Module):
         vu = torch.matmul(v, self.u_omega)  # (100,2,1) qk相乘得一维相似度向量
         alphas = self.softmax(vu)
         # 在meta-path aggregation weight上加入meta-path, 需要保持shape一致
-        tensor_rl = RL_thresholds  # (3, 1)
-        alphas_add = torch.add(alphas, tensor_rl)  # (100, 3, 1)
+        # tensor_rl = RL_thresholds  # (3, 1)
+        # alphas = torch.add(alphas, tensor_rl)  # (100, 3, 1)
 
-        output = torch.sum(x * alphas.reshape(alphas_add.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
+        output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
 
         if not self.return_alphas:
             return output

@@ -45,9 +45,9 @@ def args_register():
     parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
     parser.add_argument('--batch_size', default=100, type=int,
                         help='Batch size (number of nodes sampled to compute triplet loss in each batch)')
-    parser.add_argument('--hid_dim', default=128, type=int, help='Hidden dimension')
-    parser.add_argument('--out_dim', default=64, type=int, help='Output dimension of tweet representation')
-    parser.add_argument('--heads', default=4, type=int, help='Number of heads used in GAT')
+    parser.add_argument('--hid_dim', default=256, type=int, help='Hidden dimension')
+    parser.add_argument('--out_dim', default=128, type=int, help='Output dimension of tweet representation')
+    parser.add_argument('--heads', default=8, type=int, help='Number of heads used in GAT')
     parser.add_argument('--validation_percent', default=0.2, type=float, help='Percentage of validation nodes(tweets)')
     parser.add_argument('--attn_drop', default=0.5, type=float, help='masked probability for attention layer')
     parser.add_argument('--feat_drop', default=0.0, type=float, help='dropout probability for feature embedding in attn')
@@ -204,8 +204,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
         relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)  # 邻接矩阵list:3,tensor, (4762,4762)
         biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
         model = HeteGAT_multi_geometric(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
-                                        feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,
+                                        feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda = args.time_lambda,  # 时间衰减参数，默认: -0.2
                                         bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
+        aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
+        aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
 
         # # baselin 1: feat_dim=302; hidden_dim=128; out_dim=64; heads=4; inter_opt=cat_w_avg; is_shared=False
         # model = MarGNN((feat_dim, args.hid_dim, args.out_dim, args.heads),
@@ -237,7 +239,6 @@ def offline_FinEvent_model(train_i,  # train_i=0
     gl_loss_fn = GlobalLocalGraphContrastiveLoss(args.gl_eps)
     gcl_dropout_percent = 0.1
     gcl_disc = discriminator.Discriminator(args.out_dim)
-    gcl_loss = None
     loss_p = args.loss_p  # triplet loss加权概率
     loss_s = args.loss_s  # GraphCL loss 加权概率
     loss_g = args.loss_g  # global-local GCL loss 加权概率
@@ -256,9 +257,9 @@ def offline_FinEvent_model(train_i,  # train_i=0
     seconds_train_batches = []
     # step12.3: record the time spent in mins on each epoch
     mins_train_epochs = []
+    gcl_loss = None
+    gl_loss = None
     # edge perturbations
-    aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
-    aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
 
     # step13: start training------------------------------------------------------------
     print('----------------------------------training----------------------------')
@@ -339,6 +340,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             ret = ret_1 + ret_2
                 # logits, (1,6654)
             gcl_loss = gcl_loss_fn(ret, lbl)  # ret, (1,128); lbl, (1,128)
+            # """
             '''-------------global-local GCL with edge perturbations'''
             # 取出train_dataset中，batch_label对应的input vectors,将其转换为node embeddings,但太费labelled data！不现实，应用性太差了！
             # solution: 还是将edge perturbation的 nodes作为 information减少的local nodes
@@ -349,7 +351,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # """
             '''------------------三个loss加权求和---------------------------'''
             if gcl_loss is not None:
-                loss = loss_p * loss + loss_s * gcl_loss + loss_g * gl_loss
+                # loss = loss + gcl_loss  # 0.823; 0.732; 0.657
+                # loss = loss + loss_s * gcl_loss  # 0.828, 0.738, 0.694
+                loss = loss_p * loss + loss_s * gcl_loss  # 0.83; 0.732; 0.657
+            if gl_loss is not None:
+                loss = loss_p * loss + loss_g * gl_loss
             losses.append(loss.item())
             total_loss += loss.item()
 
