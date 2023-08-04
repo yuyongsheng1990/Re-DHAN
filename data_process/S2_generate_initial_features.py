@@ -51,6 +51,13 @@ print('Data converted to dataframe.')
 df = df.sort_values(by='created_at').reset_index(drop=True)
 # append date
 df['date'] = [d.date() for d in df['created_at']]
+# # -------------------remove outliers--------------------------------
+# df_count = df.event_id.value_counts().to_frame()
+# df_count_2 = df_count[df_count.event_id >= 2].reset_index()
+# # extract and descend according to time
+# df = df[df.event_id.isin(df_count_2.index)]
+# print(df.shape)
+# print(df.event_id.nunique())
 # -------------------------------------------------------------------
 # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
 init_day = df.loc[0, 'date']

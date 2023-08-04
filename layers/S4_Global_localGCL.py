@@ -9,7 +9,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-gl_loss_fn = nn.BCEWithLogitsLoss()
+# gl_loss_fn = nn.BCEWithLogitsLoss()
+gl_loss_fn = nn.CrossEntropyLoss()
+
 class GlobalLocalGraphContrastiveLoss(nn.Module):
     def __init__(self, temperature=0.5):
         super(GlobalLocalGraphContrastiveLoss, self).__init__()
@@ -33,27 +35,34 @@ class GlobalLocalGraphContrastiveLoss(nn.Module):
         # Reshape local_embeddings to [batch_size * num_neighbors, embedding_dim]
         local_embeddings = local_embeddings.view(batch_size, embedding_dim)  # (100, 64)
 
+        # print('----------------------cross_entropy----------------------------------')
         # Concatenate global_embeddings and local_embeddings
-        all_embeddings = torch.cat([global_embeddings, local_embeddings], dim=0)  # 按行拼接, (200, 64)
-
-        # Compute pairwise similarity matrix
+        all_embeddings = torch.cat([global_embeddings, local_embeddings], dim=0)  # 按行拼接, (200, 64); dim=1, 按第一维(列)拼接, (100, 128)
+        # # Compute pairwise similarity matrix
         similarity_matrix = torch.mm(all_embeddings, all_embeddings.t()) / self.temperature  # (200, 200), 对称矩阵, 每个original element和aug element -> similarity
-
         # Construct positive and negative masks
         test_tensor = labels.view(1, -1)  # (1, 100)
         mask = torch.eq(labels.view(-1, 1), labels.view(1, -1))  # eq function, element-wise comparison and return boolean tensor; view 重构 tensor size -> (100 , 100)，相同label的True
         mask = mask.repeat(2, 2)  # (200, 200) <- 针对对称矩阵，需要做这步repeat
-
         # Ignore diagonal elements for positive samples
         mask.fill_diagonal_(0)  # 填充对角线元素为0
-
         # Compute logit scores for positive and negative samples
         positive_scores = similarity_matrix[mask].view(-1,  1)  # 所有相同label元素对应的similarities matrix, 并将其resize为(1576, 1) shape
         negative_scores = similarity_matrix[~mask].view(-1, 1)  # ~ 取反，所有不相同label元素对应的similarities matrix, 并将其resize为(38424, 1) shape
-
         # Calculate contrastive loss using InfoNCE loss (Noise Contrastive Estimation)
         logits = torch.cat([positive_scores, negative_scores], dim=0)  # 按行拼接, (40000, 1)
         labels = torch.cat([torch.ones(positive_scores.size(0), 1), torch.zeros(negative_scores.size(0), 1)], dim=0)   # (40000, )
         contrastive_loss = gl_loss_fn(logits, labels)
+
+        # print('----------------------cross_entropy----------------------------------')
+        # # Concatenate global_embeddings and local_embeddings
+        # all_embeddings = torch.cat([global_embeddings, local_embeddings], dim=1)  # 按行拼接, (200, 64); dim=1, 按第一维(列)拼接, (100, 128)
+        # # reset labels value range, otherwise occurs IndexError: target out of bounds
+        # uni_set = torch.unique(labels)
+        # to_set = torch.tensor(list(range(len(uni_set))))
+        # labels_reset = labels.clone().detach()
+        # for from_val, to_val in zip(uni_set, to_set):
+        #     labels_reset = torch.where(labels_reset == from_val, to_val, labels_reset)
+        # contrastive_loss = gl_loss_fn(all_embeddings, labels_reset)
 
         return contrastive_loss

@@ -6,8 +6,8 @@
 # @Description :
 
 import torch
-from scipy.sparse.coo import coo_matrix
-from scipy.sparse.csr import csr_matrix
+from scipy.sparse import coo_matrix
+from scipy.sparse import csr_matrix
 from scipy import sparse
 
 import os

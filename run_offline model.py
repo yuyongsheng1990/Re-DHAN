@@ -23,6 +23,7 @@ project_path = os.getcwd()
 from layers.S2_TripletLoss import OnlineTripletLoss, HardestNegativeTripletSelector, RandomNegativeTripletSelector, \
     FunctionNPairLoss
 from layers.NCELoss import NCECriterion
+from layers.TripletLossWithGlobal import TripletLossGlobal
 from layers.S3_NeighborRL import cal_similarity_node_edge, RL_neighbor_filter
 from layers.S4_Global_localGCL import GlobalLocalGraphContrastiveLoss
 from baselines.MarGNN import MarGNN
@@ -31,7 +32,8 @@ from utils.S2_gen_dataset import create_offline_homodataset, create_multi_relati
 from utils.S4_Evaluation import AverageNonzeroTripletsMetric, evaluate
 
 from models.HeteGAT_multi import HeteGAT_multi
-from models.HeteGAT_multi_geometric import HeteGAT_multi_geometric
+from models.HeteGAT_multi_RL import HeteGAT_multi_RL
+from models.MLP_model import MLP_model
 
 from GraphCL import aug, discriminator
 def args_register():
@@ -87,9 +89,9 @@ def args_register():
     # format: './incremental_0808/incremental_graphs_0808/embeddings_XXXX'
     parser.add_argument('--log_interval', default=10, type=int, help='Log interval')
     # subgraph contrastive loss和triplet loss加权概率
-    parser.add_argument('--loss_p', default=0.8, type=float, help='A percent value of triplet loss used for loss optimization')
-    parser.add_argument('--loss_s', default=0.5, type=float, help='A percent value of GraphCL loss used for loss optimization')
-    parser.add_argument('--loss_g', default=0.5, type=float, help='A percent value of global-local GCL loss used for loss optimization')
+    parser.add_argument('--para_t', default=0.8, type=float, help='A percent value of triplet loss used for loss optimization')
+    parser.add_argument('--para_s', default=0.5, type=float, help='A percent value of GraphCL loss used for loss optimization')
+    parser.add_argument('--para_g', default=0.5, type=float, help='A percent value of global-local GCL loss used for loss optimization')
     args = parser.parse_args(args=[])  # 解析参数
 
     return args
@@ -185,7 +187,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
     if model is None:  # pre-training stage in our paper
         # print('Pre-Train Stage...')
-        # HAN_0 model without RL_filter and Neighbor_sampler
+        # # HAN_0 model without RL_filter and Neighbor_sampler
         # relations_mx_list = relations_to_adj(multi_r_data, nb_nodes=num_dim)
         # biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
         # model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
@@ -203,15 +205,18 @@ def offline_FinEvent_model(train_i,  # train_i=0
         # 所以，既要用到adjs_list for RL_sampler，也要用到bias_list for HAN algorithm.
         relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)  # 邻接矩阵list:3,tensor, (4762,4762)
         biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        model = HeteGAT_multi_geometric(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+        model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
                                         feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda = args.time_lambda,  # 时间衰减参数，默认: -0.2
                                         bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
-        aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
-        aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
+        # # aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
+        # # aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
 
-        # # baselin 1: feat_dim=302; hidden_dim=128; out_dim=64; heads=4; inter_opt=cat_w_avg; is_shared=False
+        # baseline 1: feat_dim=302; hidden_dim=128; out_dim=64; heads=4; inter_opt=cat_w_avg; is_shared=False
         # model = MarGNN((feat_dim, args.hid_dim, args.out_dim, args.heads),
         #                num_relations=num_relations, inter_opt=args.inter_opt, is_shared=args.is_shared)
+
+        # baseline 2: MLP, multi-layer perceptron
+        # model = MLP_model(input_dim=feat_dim, hid_dim=args.hid_dim, out_dim=args.out_dim)
     else:
         biases_mat_list = None
 
@@ -239,9 +244,9 @@ def offline_FinEvent_model(train_i,  # train_i=0
     gl_loss_fn = GlobalLocalGraphContrastiveLoss(args.gl_eps)
     gcl_dropout_percent = 0.1
     gcl_disc = discriminator.Discriminator(args.out_dim)
-    loss_p = args.loss_p  # triplet loss加权概率
-    loss_s = args.loss_s  # GraphCL loss 加权概率
-    loss_g = args.loss_g  # global-local GCL loss 加权概率
+    para_t = args.para_t  # triplet loss加权概率
+    para_s = args.para_s  # GraphCL loss 加权概率
+    para_g = args.para_g  # global-local GCL loss 加权概率
 
     # data.train_mask, data.val_mask, data.test_mask = gen_offline_masks(len(labels))
     train_num_samples, valid_num_samples, test_num_samples = homo_data.train_mask.size(0), homo_data.val_mask.size(
@@ -258,8 +263,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
     # step12.3: record the time spent in mins on each epoch
     mins_train_epochs = []
     gcl_loss = None
-    gl_loss = None
-    # edge perturbations
+    gl_loss = None  # edge perturbations
+    # MLP model for cross entropy
+    mlp_model = MLP_model(input_dim=feat_dim, hid_dim=args.hid_dim, out_dim=args.out_dim)
+    mlp_loss_fn = nn.CrossEntropyLoss()
+    mlp_loss = None
 
     # step13: start training------------------------------------------------------------
     print('----------------------------------training----------------------------')
@@ -296,10 +304,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # pred = model(features_list, biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
             pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
+            # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
 
             loss_outputs = loss_fn(pred, batch_labels)  # (12.8063), 179
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs
-            # """
+            """
             '''----------GraphCL loss function with subgraph augmentation-------------------------'''
             # subgraph sampling
             batch_features = homo_data.x[batch_nodes]
@@ -340,7 +349,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             ret = ret_1 + ret_2
                 # logits, (1,6654)
             gcl_loss = gcl_loss_fn(ret, lbl)  # ret, (1,128); lbl, (1,128)
-            # """
+            
             '''-------------global-local GCL with edge perturbations'''
             # 取出train_dataset中，batch_label对应的input vectors,将其转换为node embeddings,但太费labelled data！不现实，应用性太差了！
             # solution: 还是将edge perturbation的 nodes作为 information减少的local nodes
@@ -348,14 +357,17 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # h_local = model(features_list, aug_edge_biases_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings, (100, 64)
             h_local = model(features_list, aug_edge_biases_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2计算正样本 positive feature embeddings, (100, 64)
             gl_loss = gl_loss_fn(h_global, h_local, batch_labels)
+            '''-------------MLP cross-entropy loss---------------------'''
+            pre_mlp = mlp_model(features_list)
+            mlp_loss = mlp_loss_fn(pre_mlp, batch_labels)  -> negative
             # """
             '''------------------三个loss加权求和---------------------------'''
             if gcl_loss is not None:
                 # loss = loss + gcl_loss  # 0.823; 0.732; 0.657
-                # loss = loss + loss_s * gcl_loss  # 0.828, 0.738, 0.694
-                loss = loss_p * loss + loss_s * gcl_loss  # 0.83; 0.732; 0.657
+                # loss = loss + para_s * gcl_loss  # 0.828, 0.738, 0.694
+                loss = para_t * loss + para_s * gcl_loss  # 0.83; 0.732; 0.657
             if gl_loss is not None:
-                loss = loss_p * loss + loss_g * gl_loss
+                loss = para_t * loss + para_g * gl_loss
             losses.append(loss.item())
             total_loss += loss.item()
 
@@ -429,6 +441,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # pred = model(features_list, biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
             pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
+            # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
 
             extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
 
@@ -514,6 +527,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         # pred = model(features_list, biases_mat_list, batch_nodes_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
         pred = model(features_list, biases_mat_list, batch_nodes_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
         # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
+        # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
 
         extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
         del pred
@@ -563,6 +577,7 @@ if __name__ == '__main__':
     if args.use_hardest_neg:
         # HardestNegativeTripletSelector返回某标签下ith元素和jth元素，其最大loss对应的其他标签元素索引
         loss_fn = OnlineTripletLoss(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss
+        # loss_fn = TripletLossGlobal(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss with global -> negative
     else:
         loss_fn = OnlineTripletLoss(args.margin, RandomNegativeTripletSelector(args.margin))
     # N_pair_loss

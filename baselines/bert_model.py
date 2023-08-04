@@ -3,12 +3,13 @@ baseline models: Bert、GCN
 '''
 import numpy as np
 import pandas as pd
+from transformers import AutoTokenizer, AutoModel
 # --------------------------------laod_tweet_data------------------------------------
 import os
 project_path = os.path.abspath(os.path.dirname(os.getcwd()))  # # 获取上级路径
 
-load_path = project_path + '/data/FinEvent_datasets/raw dataset/'
-save_path = project_path + '/result/FinEvent result/'
+load_path = project_path + '/data/raw dataset/'
+save_path = project_path + '/'
 
 import datetime
 
@@ -33,26 +34,32 @@ df = df.sort_values(by='created_at').reset_index(drop=True)
 df['date'] = [d.date() for d in df['created_at']]
 # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
 init_day = df.loc[0, 'date']
-df = df[(df['date']>= init_day) & (df['date']<= init_day + datetime.timedelta(days=3))].reset_index() # (11971, 18)
+df = df[(df['date']>= init_day) & (df['date']<= init_day + datetime.timedelta(days=0))].reset_index() # (11971, 18)
 print(df.shape)
 print(df.event_id.nunique())
 print(df.user_id.nunique())
 
 # -----------------------------------------Bert embeddings------------------------------------------------
-from transformers import AutoTokenizer, AutoModel
-tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-bert_model = AutoModel.from_pretrained('bert-base-uncased')
 
-df['bert_embeddings'] = df.text.apply(lambda x: bert_model(**tokenizer(x, return_tensors='pt'))[0][0][0][:128])
+def documents_to_bert_features(x):  # x, list type
+    tokennizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    bert_model = AutoModel.from_pretrained('bert-base-uncased')
+    bert_vector = bert_model(**tokennizer(' '.join(x), return_tensors='pt'))[0][0][0][:128]
+    return bert_vector.detach().numpy()
 
-df_bert = df[['event_id','bert_embeddings']]
+df = df.loc[:5]
+bert_embeddings = df.filtered_words.apply(lambda x: documents_to_bert_features(x))  # nlp生成300维向量；join函数将列表连接成字符串
+bert_embeddings = np.stack(bert_embeddings, axis=0)
+
+print(bert_embeddings.shape)
+np.save(save_path + 'bert_embeddings.npy', bert_embeddings)
 
 # ------------------------------------data_split---------------------------------------------------------
 from sklearn.model_selection import train_test_split
 
 tran_x, test_x, tran_y, test_y = train_test_split(x, y, test_size=0.2, random_state=i)
 # -------------------------------------DBSCAN--------------------------------------------------------
-from skelarn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN
 
 dbscan_model = DBSCAN()
 dbscan_model.fit(tran_x, tran_y)

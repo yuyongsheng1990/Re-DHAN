@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models.Attn_Head import Attn_Head, Temporal_Attn_Head, SimpleAttnLayer
+from layers.S1_GAT_Model import Intra_AGG
+from models.MLP_model import MLP_model
 
 class HeteGAT_multi(nn.Module):
     '''
@@ -36,6 +38,7 @@ class HeteGAT_multi(nn.Module):
         # self.residual = residual
 
         self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
+        # self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
         self.layers_2 = self.second_make_attn_head(attn_input_dim=self.hid_dim, attn_out_dim=self.out_dim)
         self.w_multi = nn.Linear(out_dim, out_dim)
         # self.w_multi = nn.Conv1d(out_dim, out_dim, 1, bias=False)  # (64,64)
@@ -51,7 +54,7 @@ class HeteGAT_multi(nn.Module):
             for j in range(self.n_heads[0]):  # 8-head
                 attn_list.append(Attn_Head(in_channel=int(attn_input_dim/self.n_heads[0]), out_sz=int(attn_out_dim/self.hid_units[0]),  # in_channel,233; out_sz,8
                                 feat_drop=self.feat_drop, attn_drop=self.attn_drop, activation=self.activation))
-            layers.append(nn.Sequential(*list(m for m in attn_list)))
+            layers.append(nn.Sequential(*list(m for m in attn_list)))  # hierarchical attention layers
         return nn.Sequential(*list(m for m in layers))
 
     # second layer attention. (100, 128) -> (100, 64)
@@ -78,16 +81,17 @@ class HeteGAT_multi(nn.Module):
             # 1-st layer. (100, 302) -> (100, 128)
             attn_embed_size = int(batch_feature.shape[1] / self.n_heads[0])  #  feature_size: 302, out_size:128, heads:8
             jhy_embeds = []
+            # 1层hierarchical attention + 1层linear
             for n in range(self.n_heads[0]):  # [8,1], 8个head
                 # multi-head attention 计算
                 attns.append(self.layers_1[i][n](batch_feature[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device))  # attns: list:8. (1,100,16)
-            h_1 = torch.cat(attns, dim=-1)  # shape=(1, 100, 128)
-            h_1_quz = torch.squeeze(h_1, dim=0)  # 压缩, (100, 128)
-            # 2-nd layer. (100, 128) -> (100, 64)
-            attns = []
-            attn_embed_size = int(h_1_quz.size(1) / self.n_heads[0])  # h_1_quz: 128, out_size: 64, heads: 8
-            for n in range(self.n_heads[0]):
-                attns.append(self.layers_2[i][n](h_1_quz[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
+            # h_1 = torch.cat(attns, dim=-1)  # shape=(1, 100, 128)
+            # h_1_quz = torch.squeeze(h_1, dim=0)  # 压缩, (100, 128)
+            # # 2-nd layer. (100, 128) -> (100, 64)
+            # attns = []
+            # attn_embed_size = int(h_1_quz.size(1) / self.n_heads[0])  # h_1_quz: 128, out_size: 64, heads: 8
+            # for n in range(self.n_heads[0]):
+            #     attns.append(self.layers_2[i][n](h_1_quz[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
             h_2 = torch.cat(attns, dim=-1)  # (1, 100, 64)
             # 3-rd layer: nn.Linear
             h_2_trans = self.w_multi(h_2)  # nn.Linear transformation, (1,100,64)

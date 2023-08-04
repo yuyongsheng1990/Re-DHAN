@@ -70,17 +70,17 @@ def aug_edge_perturbation(input_adj, drop_percent=0.2):
         input_adj[drop_edge_idx[0], drop_edge_idx[1]] = 0
         input_adj[drop_edge_idx[1], drop_edge_idx[0]] = 0
 
-    # add edges
-    zero_edge_num = int(zero_idx.size(0) / 2)  # 153
-    add_num = int(zero_edge_num * drop_percent)  # 30
-    edge_index_list = [i for i in range(zero_edge_num)]
-    add_index_list = random.sample(edge_index_list, add_num)
-    for i in add_index_list:
-        # fetch add edge idx
-        add_edge_idx = zero_idx[i]  # tensor([1, 68])
-        # 重置为1
-        input_adj[add_edge_idx[0], add_edge_idx[1]] = 1
-        input_adj[add_edge_idx[1], add_edge_idx[0]] = 1
+    # # add edges
+    # zero_edge_num = int(zero_idx.size(0) / 2)  # 153
+    # add_num = int(zero_edge_num * drop_percent)  # 30
+    # edge_index_list = [i for i in range(zero_edge_num)]
+    # add_index_list = random.sample(edge_index_list, add_num)
+    # for i in add_index_list:
+    #     # fetch add edge idx
+    #     add_edge_idx = zero_idx[i]  # tensor([1, 68])
+    #     # 重置为1
+    #     input_adj[add_edge_idx[0], add_edge_idx[1]] = 1
+    #     input_adj[add_edge_idx[1], add_edge_idx[0]] = 1
 
         # input_edge_bias_list.append(input_adj)
 
