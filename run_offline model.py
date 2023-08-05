@@ -26,7 +26,9 @@ from layers.NCELoss import NCECriterion
 from layers.TripletLossWithGlobal import TripletLossGlobal
 from layers.S3_NeighborRL import cal_similarity_node_edge, RL_neighbor_filter
 from layers.S4_Global_localGCL import GlobalLocalGraphContrastiveLoss
+
 from baselines.MarGNN import MarGNN
+from baselines.PPGCN import PPGCN
 
 from utils.S2_gen_dataset import create_offline_homodataset, create_multi_relational_graph, MySampler, save_embeddings
 from utils.S4_Evaluation import AverageNonzeroTripletsMetric, evaluate
@@ -43,7 +45,7 @@ def args_register():
     parser.add_argument('--window_size', default=3, type=int, help='Maintain the model after predicting window_size blocks.')
     parser.add_argument('--patience', default=5, type=int,
                         help='Early stop if perfermance did not improve in the last patience epochs.')
-    parser.add_argument('--margin', default=3, type=float, help='Margin for computing triplet losses')
+    parser.add_argument('--margin', default=8, type=float, help='Margin for computing triplet losses')
     parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
     parser.add_argument('--batch_size', default=100, type=int,
                         help='Batch size (number of nodes sampled to compute triplet loss in each batch)')
@@ -203,20 +205,24 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
         # HAN_2 model with RL_filter and Neighbor_sampler，这要torch_geometric重写HAN模型，要不然用不上FinEvent中的neighbor_sampler.
         # 所以，既要用到adjs_list for RL_sampler，也要用到bias_list for HAN algorithm.
-        relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)  # 邻接矩阵list:3,tensor, (4762,4762)
-        biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
-                                        feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda = args.time_lambda,  # 时间衰减参数，默认: -0.2
-                                        bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
-        # # aug_edge_biases_list = [aug.aug_edge_perturbation(biases) for biases in biases_mat_list]  # edge purturbation,
-        # # aug_edge_biases_list = [aug.normalize_adj(edge_bias + np.eye(edge_bias.shape[0])) for edge_bias in aug_edge_biases_list]  # edge_adj2做归一化, tensor,(2120,2120)
+        # relations_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)  # 邻接矩阵list:3,tensor, (4762,4762)
+        # biases_mat_list = [adj_to_bias(adj, num_dim, nhood=1).to(device) for adj in relations_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
+        # model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+        #                                 feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda = args.time_lambda,  # 时间衰减参数，默认: -0.2
+        #                                 bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
 
         # baseline 1: feat_dim=302; hidden_dim=128; out_dim=64; heads=4; inter_opt=cat_w_avg; is_shared=False
-        # model = MarGNN((feat_dim, args.hid_dim, args.out_dim, args.heads),
-        #                num_relations=num_relations, inter_opt=args.inter_opt, is_shared=args.is_shared)
+        model = MarGNN((feat_dim, args.hid_dim, args.out_dim, args.heads),
+                       num_relations=num_relations, inter_opt=args.inter_opt, is_shared=args.is_shared)
 
         # baseline 2: MLP, multi-layer perceptron
         # model = MLP_model(input_dim=feat_dim, hid_dim=args.hid_dim, out_dim=args.out_dim)
+
+        # baseline 3: PPGCN, 双层GCN
+        # model = PPGCN(feat_dim, args.hid_dim, args.out_dim)
+
+        # baseline 4: KPGNN
+        filtered_multi_r_data = multi_r_data
     else:
         biases_mat_list = None
 
@@ -291,6 +297,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             i_start = args.batch_size * batch
             i_end = min((batch + 1) * args.batch_size, train_num_samples)
             batch_nodes = homo_data.train_mask[i_start:i_end]  # 100个train_idx
+            batch_features = homo_data.x[batch_nodes]
             batch_labels = homo_data.y[batch_nodes]
 
             # sampling neighbors of batch nodes
@@ -302,16 +309,18 @@ def offline_FinEvent_model(train_i,  # train_i=0
             batch_node_list = [batch_nodes, batch_nodes, batch_nodes]
 
             # pred = model(features_list, biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
-            # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
+            # pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
             # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
+            # pred = model(features_list, multi_r_data, batch_nodes, device)  # PPGCN baseline model
 
             loss_outputs = loss_fn(pred, batch_labels)  # (12.8063), 179
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs
             """
-            '''----------GraphCL loss function with subgraph augmentation-------------------------'''
-            # subgraph sampling
-            batch_features = homo_data.x[batch_nodes]
+              '''----------old GraphCL loss function with subgraph augmentation from batch graph-------------------------'''
+            # 原来GraphCL RL sampler是从batch_bias中采样，取不到足够多的structure information，只会让对比效果下降！
+            # 应该是用整体adj matrix中采样subgraph
+            # original RL subgraph sampling
             batch_biases_mat_list = [biases[batch_nodes][:,batch_nodes] for biases in biases_mat_list]
             aug_fts_list1, aug_bias_list1, aug_sub_node_list1 = aug.aug_subgraph(batch_features, batch_biases_mat_list, drop_percent=gcl_dropout_percent)  # subgraph
             aug_fts_list2, aug_bias_list2, aug_sub_node_list2 = aug.aug_subgraph(batch_features, batch_biases_mat_list, drop_percent=gcl_dropout_percent)
@@ -324,8 +333,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
             features_neg = features_neg[torch.randperm(features_neg.shape[0])]
             features_neg_list = [features_neg, features_neg, features_neg]
             # 构建标签label
-            lbl_1 = torch.ones(1, args.out_dim)  # labels for aug_1, (1,192)
-            lbl_2 = torch.zeros(1, args.out_dim)  # (1,192)
+            lbl_1 = torch.ones(1, batch_nodes.shape[0])  # labels for aug_1, (1,192)
+            # lbl_1 = torch.ones(1, args.out_dim)  # labels for aug_1, (1,192)
+            lbl_2 = torch.ones(1, batch_nodes.shape[0])  # labels for aug_1, (1,192)
+            # lbl_2 = torch.zeros(1, args.out_dim)  # (1,192)
             lbl = torch.cat((lbl_1, lbl_2), 1)  # (1,128)
             # 基于data augmentation生成关于original features和shuffled features的embedding
             # h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1计算正样本 positive feature embeddings, (100, 64)
@@ -338,34 +349,80 @@ def offline_FinEvent_model(train_i,  # train_i=0
             aug_adjs, aug_n_ids = sampler.sample(sparse_trans(aug_bias_list1),
                                                  node_idx=aug_sub_node_list1[0], sizes=[-1, -1],
                                                  batch_size=aug_fts_list1[0].shape[0])  # RL_sampler from aug_adj for HAN_2
-            h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
+            h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
+            """
+            """
+            '''----------new GraphCL loss function with subgraph augmentation from whole graph-------------------------'''
+            batch_features = homo_data.x[batch_nodes]
+            # Random sample 80% nodes from batch_features
+            random_idx_1 = torch.LongTensor(random.sample(range(batch_nodes.shape[0]), int(batch_nodes.shape[0] * 0.9)))  # 0.8; 0.9
+            random_idx_2 = torch.LongTensor(random.sample(range(batch_nodes.shape[0]), int(batch_nodes.shape[0] * 0.9)))  # 0.8; 0.9
+            sub_nodes_1 = torch.index_select(batch_nodes, 0, random_idx_1)  # 采样维度 dim=0
+            sub_nodes_list_1 = [sub_nodes_1, sub_nodes_1, sub_nodes_1]
+            sub_nodes_2 = torch.index_select(batch_nodes, 0, random_idx_2)  # 采样维度 dim=0
+            sub_nodes_list_2 = [sub_nodes_2, sub_nodes_2, sub_nodes_2]
+            # subgraph feature embeddings
+            # subgraph bias matrix
+            sub_bias_mx_list_1 = [biases[sub_nodes_1][:,sub_nodes_1] for biases in biases_mat_list]
+            sub_bias_mx_list_2 = [biases[sub_nodes_2][:,sub_nodes_2] for biases in biases_mat_list]
+            # 归一化
+            gcl_biases_mat_list = [aug.normalize_adj(adj + np.eye(adj.shape[0])) for adj in biases_mat_list]  # 原始adj matrix做归一化normalize, ndarray, (3327,3327)
+            aug_bias_list1 = [aug.normalize_adj(aug_bias1 + np.eye(aug_bias1.shape[0])) for aug_bias1 in sub_bias_mx_list_1]  # aug_adj1做归一化, tensor, (2120,2120)
+            aug_bias_list2 = [aug.normalize_adj(aug_bias2 + np.eye(aug_bias2.shape[0])) for aug_bias2 in sub_bias_mx_list_2]  # aug_adj2做归一化, tensor,(2120,2120)
+            # negative samples
+            features_neg = homo_data.x.clone()
+            features_neg = features_neg[torch.randperm(features_neg.shape[0])]
+            features_neg_list = [features_neg, features_neg, features_neg]
+            # 构建标签label. Bilinear的值域为[0,1] 或[-1, 1], 值域变化受输入数据影响
+            lbl_1 = torch.ones(batch_nodes.shape[0], 1)  # labels for aug_1, (1,192)
+            lbl_2 = torch.zeros(batch_nodes.shape[0], 1)  # (1,192)
+            # lbl_2 = torch.full(lbl_1.shape, -1)  # -1的负标签
+            lbl = torch.cat((lbl_1, lbl_2), dim=0)  # (1,128)
+            # 基于data augmentation生成关于original features和shuffled features的embedding
+            # h_pos = model(features_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1计算正样本 positive feature embeddings, (100, 64)
+            # h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings
+            h_pos = pred.clone()
+            h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, adjs, n_ids, device,
+                          RL_thresholds)  # HAN_2构建负样本 negative feature embeddings
+            # 构建subgraph augmentation embedding
+            # h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, device, RL_thresholds)  # HAN_0/HAN_1 构建 subgraph augmentation embeddings, (90, 64)
+            # h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, device, RL_thresholds)  # HAN_0/HAN_1 计算正样本 subgraph augmentation embeddings
+            aug_adjs_1, aug_n_ids_1 = sampler.sample(filtered_multi_r_data,
+                                                 node_idx=sub_nodes_1, sizes=[-1, -1],
+                                                 batch_size=len(sub_nodes_2))  # RL_sampler from aug_adj for HAN_2
+            h_aug_1 = model(features_list, biases_mat_list, sub_nodes_list_1, aug_adjs_1, aug_n_ids_1, device, RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
+            aug_adjs_2, aug_n_ids_2 = sampler.sample(filtered_multi_r_data,
+                                                     node_idx=sub_nodes_2, sizes=[-1, -1],
+                                                     batch_size=len(sub_nodes_2))  # RL_sampler from aug_adj for HAN_2
+            h_aug_2 = model(features_list, biases_mat_list, sub_nodes_list_2, aug_adjs_2, aug_n_ids_2, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
+
             # readout
             c_aug_1 = nn.Sigmoid()(torch.mean(h_aug_1, 0))  # (64,)
             c_aug_2 = nn.Sigmoid()(torch.mean(h_aug_2, 0))
-            # discriminator
+            # discriminator. Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。pos对齐，相似度为1，neg为0.
             ret_1 = gcl_disc(c_aug_1, h_pos, h_neg)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
-            ret_2 = gcl_disc(c_aug_2, h_pos, h_neg)  # (100, 384)
+            ret_2 = gcl_disc(c_aug_2, h_pos, h_neg)  # (100, 384) # BiLinear
             ret = ret_1 + ret_2
                 # logits, (1,6654)
             gcl_loss = gcl_loss_fn(ret, lbl)  # ret, (1,128); lbl, (1,128)
-            
+
             '''-------------global-local GCL with edge perturbations'''
-            # 取出train_dataset中，batch_label对应的input vectors,将其转换为node embeddings,但太费labelled data！不现实，应用性太差了！
-            # solution: 还是将edge perturbation的 nodes作为 information减少的local nodes
-            h_global = pred.clone()
-            # h_local = model(features_list, aug_edge_biases_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings, (100, 64)
-            h_local = model(features_list, aug_edge_biases_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2计算正样本 positive feature embeddings, (100, 64)
-            gl_loss = gl_loss_fn(h_global, h_local, batch_labels)
-            '''-------------MLP cross-entropy loss---------------------'''
-            pre_mlp = mlp_model(features_list)
-            mlp_loss = mlp_loss_fn(pre_mlp, batch_labels)  -> negative
+            # # 取出train_dataset中，batch_label对应的input vectors,将其转换为node embeddings,但太费labelled data！不现实，应用性太差了！
+            # # solution: 还是将edge perturbation的 nodes作为 information减少的local nodes
+            # h_global = pred.clone()
+            # # h_local = model(features_list, aug_edge_biases_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings, (100, 64)
+            # h_local = model(features_list, aug_edge_biases_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2计算正样本 positive feature embeddings, (100, 64)
+            # gl_loss = gl_loss_fn(h_global, h_local, batch_labels)
+            # '''-------------MLP cross-entropy loss---------------------'''
+            # pre_mlp = mlp_model(features_list)
+            # mlp_loss = mlp_loss_fn(pre_mlp, batch_labels)  -> negative
             # """
             '''------------------三个loss加权求和---------------------------'''
             if gcl_loss is not None:
                 # loss = loss + gcl_loss  # 0.823; 0.732; 0.657
-                # loss = loss + para_s * gcl_loss  # 0.828, 0.738, 0.694
-                loss = para_t * loss + para_s * gcl_loss  # 0.83; 0.732; 0.657
+                loss = loss + para_s * gcl_loss  # 0.828, 0.738, 0.694
+                # loss = para_t * loss + para_s * gcl_loss  # 0.83; 0.732; 0.657
             if gl_loss is not None:
                 loss = para_t * loss + para_g * gl_loss
             losses.append(loss.item())
@@ -439,9 +496,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
                                          batch_size=args.batch_size)
 
             # pred = model(features_list, biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
-            # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
+            # pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
             # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
+            # pred = model(features_list, multi_r_data, batch_nodes, device)  # PPGCN baseline model
 
             extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
 
@@ -525,9 +583,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
                                      batch_size=args.batch_size)
 
         # pred = model(features_list, biases_mat_list, batch_nodes_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-        pred = model(features_list, biases_mat_list, batch_nodes_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
-        # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
+        # pred = model(features_list, biases_mat_list, batch_nodes_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+        pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
         # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
+        # pred = model(features_list, multi_r_data, batch_nodes, device)  # PPGCN baseline model
 
         extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
         del pred
@@ -576,8 +635,8 @@ if __name__ == '__main__':
     # contrastive loss in our paper
     if args.use_hardest_neg:
         # HardestNegativeTripletSelector返回某标签下ith元素和jth元素，其最大loss对应的其他标签元素索引
-        loss_fn = OnlineTripletLoss(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss
-        # loss_fn = TripletLossGlobal(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss with global -> negative
+        # loss_fn = OnlineTripletLoss(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss
+        loss_fn = TripletLossGlobal(args.margin, HardestNegativeTripletSelector(args.margin))  # margin used for computing tripletloss with global embedding -> negative
     else:
         loss_fn = OnlineTripletLoss(args.margin, RandomNegativeTripletSelector(args.margin))
     # N_pair_loss

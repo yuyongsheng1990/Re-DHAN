@@ -5,6 +5,8 @@
 # @Project : HAN_torch
 # @Description :
 
+import numpy as np
+import scipy.sparse as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -45,16 +47,19 @@ class HeteGAT_multi_RL(nn.Module):
         self.layers_1 = self.first_make_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
         # 1-layer temporal attention model from HAN model
         self.layers_2 = self.second_make_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
+        # self.layers_2 = self.second_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
 
         # 1-layer nn.conv1d
         self.Conv1d = nn.Conv1d(int(hid_dim/2), hid_dim, 1, bias=False)  # (64,64)
 
         # 1-layer Linear module
         self.linear = nn.Linear(out_dim, out_dim)
+        # self.linear = nn.Linear(self.feature_size, self.feature_size)
 
         # 2层 GAT module - 2 from FinEvent
-        # self.GNN_args = (self.feature_size, int(self.feature_size / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
+        # self.GNN_args = (self.feature_size, int(hid_dim / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
         self.GNN_args = (hid_dim, int(hid_dim / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
+        # self.GNN_args = (hid_dim, int(hid_dim / 2), out_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
         self.intra_aggs = nn.ModuleList([Intra_AGG(self.GNN_args) for _ in range(self.bias_mx_len)])
 
         # 1层GCNconv
@@ -70,7 +75,6 @@ class HeteGAT_multi_RL(nn.Module):
         self.mlp = MLP_model(self.feature_size, int(self.feature_size/2), hid_dim)
         # self.mlp = MLP_model(hid_dim, int(hid_dim/2), hid_dim)
         # self.mlp = MLP_model(out_dim, int(out_dim/2), out_dim)
-        # self.mlp_f = MLP_model(out_dim, int(out_dim/2), out_dim)
 
         # normalization, 防止梯度扩散
         # self.norm = BatchNorm1d(hid_dim)
@@ -117,6 +121,9 @@ class HeteGAT_multi_RL(nn.Module):
             # -----------------1-layer MLP------------------------------------------------
             mlp_features = self.mlp(features[n_ids[i]])
 
+            # -----------------1-layer Linear------------------------------------------------
+            # mlp_features = self.linear(features[n_ids[i]])
+
             # ---------------2 GAT layers from FinEvent-------------------------------------
             feature_embedding = self.intra_aggs[i](mlp_features, adjs[i], device)  # (100,128)
             # feature_embedding = self.intra_aggs[i](features[n_ids[i]], adjs[i], device)  # (100,128)
@@ -147,11 +154,11 @@ class HeteGAT_multi_RL(nn.Module):
             attn_embed_size = int(feature_embedding.shape[1] / self.n_heads[0])  # h_1_quz: 128, out_size: 64, heads: 8
             for n in range(self.n_heads[0]):
                 attns.append(self.layers_2[i][n](feature_embedding[:, n * attn_embed_size: (n + 1) * attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
-
             h_2 = torch.cat(attns, dim=-1)  # (1, 100, 64)
             feature_embedding = torch.squeeze(h_2)
+
             # -------------l-layer MLP---------------------
-            # feature_embedding = self.mlp(torch.squeeze(h_2))
+            # feature_embedding = self.mlp(feature_embedding)
 
             # 3-rd layer: nn.Linear
             # h_2_trans = self.linear(h_2)  # nn.Linear transformation, (1,100,64)
@@ -184,8 +191,8 @@ class HeteGAT_multi_RL(nn.Module):
             # feature_embedding = self.mlp_f(feature_embedding)
 
             # ----------------1-layer Linear----------------------------------------------
-            feature_embedding = self.linear(feature_embedding)
-            # feature_embedding = self.linear(F.elu(feature_embedding))
+            # feature_embedding = self.linear(feature_embedding)
+            feature_embedding = self.linear(F.elu(feature_embedding))
 
             embed_list.append(torch.unsqueeze(feature_embedding, dim=1))
 
