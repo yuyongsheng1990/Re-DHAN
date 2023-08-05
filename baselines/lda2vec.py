@@ -11,10 +11,10 @@ import datetime
 import torch
 import gensim
 # --------------------------------laod_tweet_data------------------------------------
-project_path = os.path.abspath(os.path.dirname(os.getcwd()))  # # 获取上级路径
+project_path = os.getcwd()  # # 获取上级路径
 
 load_path = project_path + '/data/raw dataset/'
-save_path = project_path + '/data/'
+save_path = project_path + '/data/offline_embeddings/block_0'
 
 # load data (68841 tweets, multiclasses filtered)
 p_part1 = load_path + '68841_tweets_multiclasses_filtered_0722_part1.npy'
@@ -37,7 +37,7 @@ df = df.sort_values(by='created_at').reset_index(drop=True)
 df['date'] = [d.date() for d in df['created_at']]
 # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
 init_day = df.loc[0, 'date']
-df = df[(df['date']>= init_day) & (df['date']<= init_day + datetime.timedelta(days=0))].reset_index() # (11971, 18)
+df = df[(df['date']>= init_day + datetime.timedelta(days=0)) & (df['date']<= init_day + datetime.timedelta(days=1))].reset_index() # (11971, 18)
 print(df.shape)
 print(df.event_id.nunique())
 print(df.user_id.nunique())
@@ -45,39 +45,33 @@ print(df.user_id.nunique())
 # -----------------------------------------lda2vec embeddings------------------------------------------------
 from gensim.models.doc2vec import TaggedDocument
 from gensim.models.doc2vec import Doc2Vec
-from gensim.utils import simple_preprocess
-from smart_open import open
 
-file_name = '../data/lda_data/proasmdataset.txt'
-train_vec = 'proasmdatasetVec.txt.model'
+train_vec = project_path + '/baselines/proasmdatasetVec.txt.model'
+def process_doc(df):
+    for line, event_id in zip(list(df.filtered_words), list(df.event_id)):
+        # print(line)
+        yield TaggedDocument(words=line, tags=[event_id])
 
-def read_corpus(filename, tokens_only=False):
-    with open(filename, encoding='utf-8') as f:
-        for i,line in enumerate(f):
-            tokens = simple_preprocess(line)
-            if tokens_only:
-                yield tokens
-            else:
-                yield TaggedDocument(tokens, [i])
-
-train_corpus = list(read_corpus(file_name))
-test_corpus = list(read_corpus(file_name, tokens_only=True))
-
-def train(ftrain):
+def train_lda(ftrain):
     # 实例化Doc2Vec模型
-    model = Doc2Vec(vector_size=100, window=3, cbow_mean=1, min_count=1)
+    model = Doc2Vec(vector_size=128, window=3, cbow_mean=1, min_count=1)
     # 更新现有的word2vec模型
     model.build_vocab(ftrain)  # 使用数据建立单词表
-    model.train(ftrain, total_examples=model.corpus_count, epochs=10)  # 训练模型，更新模型参数
+    model.train(ftrain, total_examples=model.corpus_count, epochs=50)  # 训练模型，更新模型参数
     model.save(train_vec)
     return model
 
-model_dm = train(train_corpus)
+def ldaEmbedding_fn(tran_idx, test_idx):
 
-# 模型训练完成后，可以用来生成一段文本的paragraph vector。
-df = df.loc[:5]
-lda_embeddings = df.filtered_words.apply(lambda x: model_dm.infer_vector(x))  # nlp生成300维向量；join函数将列表连接成字符串
-lda_embeddings = np.stack(lda_embeddings, axis=0)
+    # training
+    train_corpus = list(process_doc(df.loc[tran_idx, :]))
+    model_dm = train_lda(train_corpus)
 
-print(lda_embeddings.shape)
-np.save(save_path + 'lda_embeddings.npy', lda_embeddings)
+    # 模型训练完成后，可以用来生成一段文本的paragraph vector。
+
+    lda_embeddings = df.filtered_words.apply(lambda x: model_dm.infer_vector(x))  # nlp生成300维向量；join函数将列表连接成字符串
+    lda_embeddings = np.stack(lda_embeddings, axis=0)
+
+    print(lda_embeddings.shape)
+    np.save(save_path + '/lda_embeddings.npy', lda_embeddings)
+    return lda_embeddings

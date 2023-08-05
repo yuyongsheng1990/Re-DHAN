@@ -100,7 +100,7 @@ def delete_row_col(input_matrix, drop_list, only_row=False):
 
 def normalize_adj(adj):  # tensor, (4286,4286)
     """Symmetrically normalize adjacency matrix."""
-    adj = np.array(adj)
+    adj = np.array(adj.cpu())
     mu = np.mean(adj, axis=1)
     std = np.std(adj, axis=1)
     return torch.from_numpy((adj-mu)/std)

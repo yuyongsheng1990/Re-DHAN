@@ -37,11 +37,8 @@ class HeteGAT_multi(nn.Module):
         self.activation = activation  # nn.ELU
         # self.residual = residual
 
-        self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
-        # self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
-        self.layers_2 = self.second_make_attn_head(attn_input_dim=self.hid_dim, attn_out_dim=self.out_dim)
+        self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.out_dim)
         self.w_multi = nn.Linear(out_dim, out_dim)
-        # self.w_multi = nn.Conv1d(out_dim, out_dim, 1, bias=False)  # (64,64)
 
         self.simpleAttnLayer = SimpleAttnLayer(out_dim, hid_dim, time_major=False, return_alphas=True)  # 64, 128
         self.fc = nn.Linear(out_dim, nb_classes)  # 64, 3
@@ -85,19 +82,9 @@ class HeteGAT_multi(nn.Module):
             for n in range(self.n_heads[0]):  # [8,1], 8个head
                 # multi-head attention 计算
                 attns.append(self.layers_1[i][n](batch_feature[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device))  # attns: list:8. (1,100,16)
-            # h_1 = torch.cat(attns, dim=-1)  # shape=(1, 100, 128)
-            # h_1_quz = torch.squeeze(h_1, dim=0)  # 压缩, (100, 128)
-            # # 2-nd layer. (100, 128) -> (100, 64)
-            # attns = []
-            # attn_embed_size = int(h_1_quz.size(1) / self.n_heads[0])  # h_1_quz: 128, out_size: 64, heads: 8
-            # for n in range(self.n_heads[0]):
-            #     attns.append(self.layers_2[i][n](h_1_quz[:, n*attn_embed_size: (n+1)*attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
-            h_2 = torch.cat(attns, dim=-1)  # (1, 100, 64)
-            # 3-rd layer: nn.Linear
-            h_2_trans = self.w_multi(h_2)  # nn.Linear transformation, (1,100,64)
-            # h_1_trans = self.w_multi(torch.transpose(h_1, 2, 1))  # with nn.Conv1d transformation
-            # h_1_trans = torch.transpose(h_1_trans, 2, 1)
-            embed_list.append(torch.transpose(h_2_trans, 1, 0))  # list:2. 其中每个元素tensor, (100, 1, 64)
+            h_1 = torch.cat(attns, dim=-1)  # shape=(1, 100, 128)
+            h_1_trans = self.w_multi(h_1)
+            embed_list.append(torch.transpose(h_1_trans, 1, 0))  # list:2. 其中每个元素tensor, (100, 1, 64)
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding

@@ -58,12 +58,13 @@ class Attn_Head(nn.Module):
 # time exponential decay formula
 def time_decay_weight(vectors, time_lambda):  # 衰减参数 lambda
     # torch 转换为numpy array
-    vectors = torch.squeeze(vectors.t()).numpy()  # (1,100)
+    vectors = torch.squeeze(vectors.cpu().t()).numpy()  # (1,100)
     # 计算每两个元素相减的绝对值并形成矩阵
     diff_matrix = np.abs(np.subtract.outer(vectors, vectors))
     time_weight_mx = np.exp(diff_matrix * (-time_lambda))  # 不要用softmax，它会将差异抹平！！！
     # time_weight_mx = F.softmax(torch.from_numpy(time_matrix), dim=1)  # dim=1, 在行上进行softmax; dim=0, 在列上进行softmax
     return torch.from_numpy(time_weight_mx)
+
 # Temporal node attention
 class Temporal_Attn_Head(nn.Module):
     def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, activation=None, return_attn=False):
@@ -88,7 +89,7 @@ class Temporal_Attn_Head(nn.Module):
             seq = seq.float()
         # reshape x and bias_mx for nn.Conv1d,
         seq = torch.transpose(seq[np.newaxis], 2, 1).to(device)  # (1, 16, 100)
-        bias_mx = bias_mx[np.newaxis]  # (1, 100, 100)
+        bias_mx = bias_mx[np.newaxis].to(device)  # (1, 100, 100)
         seq_fts = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 8, 100)
 
         f_1 = self.conv2_1(seq_fts)  # x*Wq=q,(1, 1, 100)
@@ -106,7 +107,7 @@ class Temporal_Attn_Head(nn.Module):
 
         # add time_decay_weight
         # if batch_time is not None:
-        time_weight_mx = time_decay_weight(batch_time, time_lambda)  # (100, 100)
+        time_weight_mx = time_decay_weight(batch_time, time_lambda).to(device)  # (100, 100)
         # 时间衰减权重应该是对应元素相乘，而不是矩阵相乘
         time_weight_mx = torch.unsqueeze(time_weight_mx, 0)  # (1, 100, 100)
         attns_tt = torch.mul(attns, time_weight_mx)  # temporal attention weight, (1, 100, 100)

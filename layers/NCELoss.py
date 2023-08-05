@@ -2,7 +2,7 @@
 # @Time : 2023/4/8 20:46
 # @Author : yysgz
 # @File : NCELoss.py
-# @Project : Re-HAN Model
+# @Project : Re-HAN_Model
 # @Description :
 import random
 

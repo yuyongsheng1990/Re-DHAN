@@ -110,6 +110,7 @@ class HeteGAT_multi_RL(nn.Module):
 
         # multi-head attention in a hierarchical manner
         for i, (features, biases) in enumerate(zip(features_list, biases_mat_list)):
+            features, biases = features.to(device), biases.to(device)
             attns = []
             '''
             (n_ids[i])  # (2596,); (137,); (198,)
@@ -117,7 +118,7 @@ class HeteGAT_multi_RL(nn.Module):
             edge_index=tensor([[]]), e_id=None, size=(137,129); edge_index=tensor([[]]), e_id=None, size=(129, 100)
             edge_index=tensor([[]]), e_id=None, size=(198,152); edge_index=tensor([[]]), e_id=None, size=(152, 100)
             '''
-            batch_nodes = batch_node_list[i]
+            batch_nodes = batch_node_list[i].to(device)
             # -----------------1-layer MLP------------------------------------------------
             mlp_features = self.mlp(features[n_ids[i]])
 
@@ -128,6 +129,7 @@ class HeteGAT_multi_RL(nn.Module):
             feature_embedding = self.intra_aggs[i](mlp_features, adjs[i], device)  # (100,128)
             # feature_embedding = self.intra_aggs[i](features[n_ids[i]], adjs[i], device)  # (100,128)
             batch_time = features[batch_nodes][:, -2:-1] * 10000  # (100, 1)  # 恢复成days representation
+            batch_time = batch_time.to(device)
             batch_bias = biases[batch_nodes][:, batch_nodes]  # (100, 100)
 
             # -----------------normalization--------------------------------
@@ -191,8 +193,8 @@ class HeteGAT_multi_RL(nn.Module):
             # feature_embedding = self.mlp_f(feature_embedding)
 
             # ----------------1-layer Linear----------------------------------------------
-            # feature_embedding = self.linear(feature_embedding)
-            feature_embedding = self.linear(F.elu(feature_embedding))
+            feature_embedding = self.linear(feature_embedding)
+            # feature_embedding = self.linear(F.elu(feature_embedding))
 
             embed_list.append(torch.unsqueeze(feature_embedding, dim=1))
 

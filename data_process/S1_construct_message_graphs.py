@@ -418,7 +418,7 @@ def construct_offline_dataset(df, save_path, combined_features, test=True):
     print('Labels saved.')
     message += 'Labels saved.\n'
     # extract and save the features of corresponding tweets
-    indices = df['index'].values.tolist()  # data indices, 4762
+    indices = list(range(df.shape[0])) # data indices, 4762
     x = combined_features[indices, :]  # features是指combined_features: document_embeddings + time_features. (4762, 302)
     np.save(path + '/features.npy', x)
     print('Features saved.')
