@@ -6,7 +6,7 @@
 # @Description :
 
 import numpy as np
-from utils.S3_clustering import run_kmeans
+from utils.S3_clustering import run_kmeans, run_dbscan
 
 class Metric:
     def __init__(self):
@@ -75,7 +75,7 @@ class AverageNonzeroTripletsMetric(Metric):
         return 'Average nonzero triplets'
 
 
-def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_nodes, save_path,  # extract_features (952, 192); y, (4762); indices, (952,)
+def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_nodes, save_path, former_save_path, # extract_features (952, 192); y, (4762); indices, (952,)
              is_validation=True, cluster_type='kmeans'):
     message = ''
     message += '\nEpoch '
@@ -86,7 +86,7 @@ def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_node
     if cluster_type == 'kmeans':
         n_tweets, n_classes, nmi, ami, ari = run_kmeans(extract_features, extract_labels, indices)
     elif cluster_type == 'dbscan':
-        pass
+        n_tweets, n_classes, nmi, ami, ari = run_dbscan(extract_features, extract_labels, indices, save_path, former_save_path)
 
     if is_validation:
         mode = 'validation'

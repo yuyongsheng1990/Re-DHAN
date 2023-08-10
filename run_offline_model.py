@@ -21,8 +21,6 @@ import time
 from typing import List
 import os
 
-from numba.cuda import jit
-
 project_path = os.getcwd()
 
 from layers.S2_TripletLoss import OnlineTripletLoss, HardestNegativeTripletSelector, RandomNegativeTripletSelector
@@ -87,7 +85,7 @@ def args_register():
     parser.add_argument('--nce_eps', default=2, type=float, help='the temperature param for NCE loss function')
     # other arguments
     parser.add_argument('--use_cuda', dest='use_cuda', default=True, action='store_true', help='Use cuda')
-    parser.add_argument('--data_path', default= project_path + '/data', type=str, help='graph data path')  # 相对路径，.表示当前所在目录
+    parser.add_argument('--data_path', default=project_path + '/data', type=str, help='graph data path')  # 相对路径，.表示当前所在目录
     # parser.add_argument('--result_path', default='./result/offline result', type=str,
     #                     help='Path of features, labels and edges')
     # format: './incremental_0808/incremental_graphs_0808/embeddings_XXXX'
@@ -154,7 +152,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
     # ./incremental_0808//embeddings_0403005348/block_xxx
     i, train_i = 1, 1   # set which incremental detection stream is
     model_name = 'FinEvent'  # 更换detection模型
-    save_path_i = embedding_save_path + '/block_' + str(i) + '/' + model_name # + '/'
+    save_path_i = embedding_save_path + '/block_' + str(i) + '/' + model_name  # + '/'
     if not os.path.exists(save_path_i):
         os.makedirs(save_path_i)
 
@@ -169,7 +167,6 @@ def offline_FinEvent_model(train_i,  # train_i=0
     multi_r_data = create_multi_relational_graph(args.data_path, relation_ids, [train_i, i])
     num_relations = len(multi_r_data)  # 3
 
-    # multi_r_data = [r_data.to(device) for r_data in multi_r_data]  # tensors to be on the same device, but found at least two devices.
     # input dimension (300 in our paper)
     num_dim = homo_data.x.size(0)  # 4762
     feat_dim = homo_data.x.size(1)  # embedding dimension, 302
@@ -195,7 +192,6 @@ def offline_FinEvent_model(train_i,  # train_i=0
                                                    filter_path)  # filtered 二维矩阵, (2,104479); (2,6401); (2,15072)
     else:
         filtered_multi_r_data = multi_r_data
-    # filtered_multi_r_data = [filtered_r_data.to(device) for filtered_r_data in filtered_multi_r_data]
 
     if model is None:  # pre-training stage in our paper
         # print('Pre-Train Stage...')
@@ -312,7 +308,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             del batch_bert
             gc.collect()
 
-        save_embeddings(extract_features, save_path_i)
+        save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
+        save_embeddings(homo_data.y, save_path_i, file_name='labels.pt')
 
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
@@ -332,7 +329,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         sys.exit()
     elif model_name == 'LDA':
         # baseline 4: LDA embedding
-        lda_embeddings = ldaEmbedding_fn(homo_data.train_mask, homo_data.test_mask)
+        lda_embeddings = ldaEmbedding_fn(homo_data.train_mask, i)
         lda_embeddings = torch.FloatTensor(lda_embeddings)
         print(lda_embeddings.shape)
         print('-------------------LDA----------------------------')
@@ -355,7 +352,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             del batch_bert
             gc.collect()
 
-        save_embeddings(extract_features, save_path_i)
+        save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
+        save_embeddings(homo_data.y, save_path_i, file_name='labels.pt')
 
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
@@ -414,26 +412,24 @@ def offline_FinEvent_model(train_i,  # train_i=0
             del pred
             gc.collect()
 
-        save_embeddings(extract_features, save_path_i)
+        save_embeddings(extract_features, save_path_i, file_name='incre_embeddings.pt')
 
-        save_online_path_i = save_path_i + '/incremental_result_' + str(i)
-        if not os.path.exists(save_online_path_i):
-            os.mkdir(save_online_path_i)
-
+        former_save_path = embedding_save_path + '/block_' + str(i - 1) + '/' + model_name
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
                             indices=homo_data.test_mask,
                             epoch=-1,
                             num_isolated_nodes=0,
-                            save_path=save_online_path_i,
+                            save_path=save_path_i,
+                            former_save_path=former_save_path,
                             is_validation=False,
-                            cluster_type=args.cluster_type)
+                            cluster_type='dbscan')
 
         mins_spent = (time.time() - start_running_time) / 60
-        message += '\nWhole Running Time took {:.2f} mins'.format(mins_spent)
+        message += '\nIncremental Detection Time took {:.2f} mins'.format(mins_spent)
         message += '\n'
         print(message)
-        with open(save_online_path_i + '/log.txt', 'a') as f:
+        with open(save_path_i + '/log.txt', 'a') as f:
             f.write(message)
 
     # step13: start training------------------------------------------------------------
@@ -470,8 +466,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             batch_node_list = [batch_nodes.to(device) for _ in range(3)]
 
             # pred = model(features_list, biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            # pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
-            pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
+            pred = model(features_list, biases_mat_list, batch_node_list, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
             # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(features_list, relations_mx_list, batch_node_list, device)  # PPGCN-2 baseline model
 
@@ -514,7 +510,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             """
-            """
+            # """
             '''----------new GraphCL loss function with subgraph augmentation from whole graph-------------------------'''
             batch_features = homo_data.x[batch_nodes]
             # Random sample 80% nodes from batch_features
@@ -564,8 +560,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             c_aug_1 = F.sigmoid(torch.mean(h_aug_1, 0)).to(device)  # (64,)
             c_aug_2 = F.sigmoid(torch.mean(h_aug_2, 0)).to(device)
             # discriminator. Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。pos对齐，相似度为1，neg为0.
-            ret_1 = gcl_disc(c_aug_1, h_pos, h_neg)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
-            ret_2 = gcl_disc(c_aug_2, h_pos, h_neg)  # (100, 384) # BiLinear
+            ret_1 = gcl_disc(c_aug_1, h_pos, h_neg, device)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
+            ret_2 = gcl_disc(c_aug_2, h_pos, h_neg, device)  # (100, 384) # BiLinear
             ret = (ret_1 + ret_2).to(device)
                 # logits, (1,6654)
             gcl_loss = gcl_loss_fn(ret, lbl)  # ret, (1,128); lbl, (1,128)
@@ -676,6 +672,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
                                   epoch=epoch,
                                   num_isolated_nodes=0,
                                   save_path=save_path_i,
+                                  former_save_path=None,
                                   is_validation=True,
                                   cluster_type=args.cluster_type)
         all_vali_nmi.append(validation_nmi)
@@ -720,8 +717,6 @@ def offline_FinEvent_model(train_i,  # train_i=0
     model.load_state_dict(torch.load(best_model_path))
     print('Best model loaded.')
 
-    # 合并gcl_model和model参数
-    for name, param in model.named_parameters(): pass
     # del homo_data, multi_r_data
     torch.cuda.empty_cache()
 
@@ -759,7 +754,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
         del pred
         gc.collect()
 
-    save_embeddings(extract_features, save_path_i)
+    save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
+    save_embeddings(homo_data.y, save_path_i, file_name='final_labels.pt')
 
     test_nmi = evaluate(extract_features[homo_data.test_mask],
                         homo_data.y,
@@ -767,6 +763,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
                         epoch=-1,
                         num_isolated_nodes=0,
                         save_path=save_path_i,
+                        former_save_path=None,
                         is_validation=False,
                         cluster_type=args.cluster_type)
 

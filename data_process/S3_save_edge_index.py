@@ -11,8 +11,8 @@ from scipy.sparse import csr_matrix
 from scipy import sparse
 
 import os
-# project_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # # 获取上上级路径
-offline_dataset_path = '../data'
+project_path = os.path.abspath(os.path.join(os.getcwd(), "../."))  # # 获取上上级路径
+offline_dataset_path = project_path + '/data'
 
 # relations_ids = ['entity', 'userid', 'word'],分别读取这三个文件
 def sparse_trans(datapath = None):

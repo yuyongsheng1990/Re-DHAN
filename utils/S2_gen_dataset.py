@@ -246,6 +246,6 @@ class MySampler(object):
             assert id == 0
         return outs, all_n_ids
 
-def save_embeddings(extracted_features, save_path):
-    torch.save(extracted_features, save_path + '/final_embeddings.pt')
+def save_embeddings(extracted_features, save_path, file_name):
+    torch.save(extracted_features, save_path + '/' + file_name)
     print('extracted features saved.')

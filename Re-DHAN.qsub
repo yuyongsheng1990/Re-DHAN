@@ -1,0 +1,22 @@
+# !/bin/bash
+
+# PBS -P xs82
+# PBS -q normal
+
+#PBS -l ncpus=12
+#PBS -l mem=64GB
+
+#PBS -q gpuvolta
+#PBS -l ngpus=1
+
+#PBS -l jobfs=0
+#PBS -l walltime=04:00:00
+#PBS -l storage=scratch/xs82
+
+# module load pytorch/1.4.0a0
+python3 /home/576/yy0588/Re-DHAN_Model/data_process/S2_generate_initial_features.py
+python3 /home/576/yy0588/Re-DHAN_Model/data_process/S1_construct_message_graphs.py
+
+for ((i=1; i<=3; i++)); do
+    python3 /home/576/yy0588/Re-DHAN_Model/run_offline_model.py
+done
