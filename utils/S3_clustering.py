@@ -27,7 +27,7 @@ def run_kmeans(extract_features, extract_labels, indices, isoPath=None):
         # Remove isolated points
         temp = torch.load(isoPath)
         temp = temp.cpu().detach().numpy()  # detach()阻断反向传播，返回值为tensor；numpy()将tensor转换为numpy
-        non_isolated_index = list(np.where(temp != 1)[0])  # np.where返回符合条件元素的索引index
+        non_isolated_index = list(torch.where(temp != 1)[0])  # np.where返回符合条件元素的索引index
         indices = intersection(indices, non_isolated_index)  # 取交集
     # Extract labels
     extract_labels = extract_labels.cpu().numpy()
@@ -67,7 +67,7 @@ def run_dbscan(extract_features, extract_labels, indices, save_path, former_save
         # Remove isolated points
         temp = torch.load(isoPath)
         temp = temp.cpu().detach().numpy()  # detach()阻断反向传播，返回值为tensor；numpy()将tensor转换为numpy
-        non_isolated_index = list(np.where(temp != 1)[0])  # np.where返回符合条件元素的索引index
+        non_isolated_index = list(torch.where(temp != 1)[0])  # np.where返回符合条件元素的索引index
         indices = intersection(indices, non_isolated_index)  # 取交集
     # former embeddings
     former_embeddings = torch.load(former_save_path + '/final_embeddings.pt')

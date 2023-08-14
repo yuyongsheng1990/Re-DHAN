@@ -19,7 +19,7 @@ class Discriminator(nn.Module):
     def forward(self, aug_embed, h_pos, h_neg, device, s_bias1=None, s_bias2=None):
 
         aug_embed, h_pos, h_neg = aug_embed.to(device), h_pos.to(device), h_neg.to(device)
-        aug_x = aug_embed.expand_as(h_pos).to(device)
+        aug_x = aug_embed.expand_as(h_pos)
 
         # Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。
         # pos对齐，相似度为1，neg为0. 表明是graph-level embedding 的一致性

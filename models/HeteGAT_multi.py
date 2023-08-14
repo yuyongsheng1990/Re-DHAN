@@ -20,7 +20,7 @@ class HeteGAT_multi(nn.Module):
                               activation=nn.ELU(), residual=args.residual)
 
     '''
-    def __init__(self, feature_size, nb_classes, nb_nodes, attn_drop, feat_drop, hid_dim, out_dim, time_lambda,
+    def __init__(self, feature_size, nb_classes, nb_nodes, attn_drop, feat_drop, hid_dim, out_dim,
                  bias_mx_len, hid_units, n_heads, activation=nn.ELU()):
         super(HeteGAT_multi, self).__init__()
         self.feature_size = feature_size  # 302
@@ -30,7 +30,6 @@ class HeteGAT_multi(nn.Module):
         self.feat_drop = feat_drop  # 0.0
         self.hid_dim = hid_dim  # 128
         self.out_dim = out_dim  # 64
-        self.time_lambda = time_lambda  # -0.2
         self.bias_mx_len = bias_mx_len  # list:3
         self.hid_units = hid_units  # [8]
         self.n_heads = n_heads  # [8,1]

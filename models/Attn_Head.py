@@ -32,8 +32,9 @@ class Attn_Head(nn.Module):
             seq = self.feat_dropout(x)  # 以rate置0
             seq = seq.float()
         # reshape x and bias_mx for nn.Conv1d
-        seq = torch.transpose(seq[np.newaxis], 2, 1).to(device)  # (1, 37, 100)
-        bias_mx = bias_mx[np.newaxis]  # (1, 100, 100)
+        seq = torch.unsqueeze(seq, dim=0)
+        seq = torch.transpose(seq, 2, 1)  # (1, 37, 100)
+        bias_mx = torch.unsqueeze(bias_mx, dim=0)  # (1, 100, 100)
         seq_fts = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 16, 100)
 
         f_1 = self.conv2_1(seq_fts)  # x*Wq=q,(1, 1, 100)
@@ -55,15 +56,25 @@ class Attn_Head(nn.Module):
         else:
             return self.activation(ret)  # activation
 
-# time exponential decay formula
+# # numpy version: time exponential decay formula
+# def time_decay_weight(vectors, time_lambda):  # 衰减参数 lambda
+#     # torch 转换为numpy array
+#     vectors = torch.squeeze(vectors.cpu().t()).numpy()  # (1,100)
+#     # 计算每两个元素相减的绝对值并形成矩阵
+#     diff_matrix = np.abs(np.subtract.outer(vectors, vectors))
+#     time_weight_mx = np.exp(diff_matrix * (-time_lambda))  # 不要用softmax，它会将差异抹平！！！
+#     # time_weight_mx = F.softmax(torch.from_numpy(time_matrix), dim=1)  # dim=1, 在行上进行softmax; dim=0, 在列上进行softmax
+#     return torch.from_numpy(time_weight_mx)
+
+# tensor version: time exponential decay formula
 def time_decay_weight(vectors, time_lambda):  # 衰减参数 lambda
-    # torch 转换为numpy array
-    vectors = torch.squeeze(vectors.cpu().t()).numpy()  # (1,100)
+    # torch 转换为 array
+    vectors = torch.squeeze(vectors.t())  # (1,100) -> (100,)
     # 计算每两个元素相减的绝对值并形成矩阵
-    diff_matrix = np.abs(np.subtract.outer(vectors, vectors))
-    time_weight_mx = np.exp(diff_matrix * (-time_lambda))  # 不要用softmax，它会将差异抹平！！！
+    diff_matrix = torch.abs(vectors.unsqueeze(0) - vectors.unsqueeze(1))
+    time_weight_mx = torch.exp(diff_matrix * (-time_lambda))  # 不要用softmax，它会将差异抹平！！！
     # time_weight_mx = F.softmax(torch.from_numpy(time_matrix), dim=1)  # dim=1, 在行上进行softmax; dim=0, 在列上进行softmax
-    return torch.from_numpy(time_weight_mx)
+    return time_weight_mx
 
 # Temporal node attention
 class Temporal_Attn_Head(nn.Module):
@@ -88,8 +99,9 @@ class Temporal_Attn_Head(nn.Module):
             seq = self.feat_dropout(x)  # 以rate置0
             seq = seq.float()
         # reshape x and bias_mx for nn.Conv1d,
-        seq = torch.transpose(seq[np.newaxis], 2, 1).to(device)  # (1, 16, 100)
-        bias_mx = bias_mx[np.newaxis].to(device)  # (1, 100, 100)
+        seq = torch.unsqueeze(seq, dim=0)
+        seq = torch.transpose(seq, 2, 1)  # (1, 16, 100)
+        bias_mx = torch.unsqueeze(bias_mx, dim=0).to(device)  # (1, 100, 100)
         seq_fts = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 8, 100)
 
         f_1 = self.conv2_1(seq_fts)  # x*Wq=q,(1, 1, 100)
@@ -184,7 +196,7 @@ class SimpleAttnLayer(nn.Module):
         nn.init.zeros_(self.b_omega)
         nn.init.xavier_uniform_(self.u_omega)
 
-    def forward(self, x, RL_thresholds):  # (100,2,64); 将RL sampleing weight 加入到meta-path importance weight
+    def forward(self, x, device, RL_thresholds):  # (100,2,64); 将RL sampleing weight 加入到meta-path importance weight
         '''
         这是一个点积dot-product attention
         inputs: tensor, (3025, 64)
@@ -193,13 +205,13 @@ class SimpleAttnLayer(nn.Module):
         if isinstance(x, tuple):
             # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
             inputs = torch.concat(x, 2)  # 表示在shape第2个维度上拼接
-
+        x = x.to(device)
         v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128) 作为attention q
         vu = torch.matmul(v, self.u_omega)  # (100,2,1) qk相乘得一维相似度向量
         alphas = self.softmax(vu)
         # 在meta-path aggregation weight上加入meta-path, 需要保持shape一致
-        # tensor_rl = RL_thresholds  # (3, 1)
-        # alphas = torch.add(alphas, tensor_rl)  # (100, 3, 1)
+        tensor_rl = RL_thresholds  # (3, 1)
+        alphas = torch.add(alphas, tensor_rl)  # (100, 3, 1)
 
         output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
 
