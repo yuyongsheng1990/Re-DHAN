@@ -67,8 +67,10 @@ class Attn_Head(nn.Module):
 #     return torch.from_numpy(time_weight_mx)
 
 # tensor version: time exponential decay formula
-def time_decay_weight(vectors, time_lambda):  # 衰减参数 lambda
+def time_decay_weight(vectors, time_lambda, device):  # 衰减参数 lambda
     # torch 转换为 array
+    vectors = vectors.to(device)
+    time_lambda = torch.tensor(time_lambda).to(device)
     vectors = torch.squeeze(vectors.t())  # (1,100) -> (100,)
     # 计算每两个元素相减的绝对值并形成矩阵
     diff_matrix = torch.abs(vectors.unsqueeze(0) - vectors.unsqueeze(1))
@@ -119,7 +121,7 @@ class Temporal_Attn_Head(nn.Module):
 
         # add time_decay_weight
         # if batch_time is not None:
-        time_weight_mx = time_decay_weight(batch_time, time_lambda).to(device)  # (100, 100)
+        time_weight_mx = time_decay_weight(batch_time, time_lambda, device)  # (100, 100)
         # 时间衰减权重应该是对应元素相乘，而不是矩阵相乘
         time_weight_mx = torch.unsqueeze(time_weight_mx, 0)  # (1, 100, 100)
         attns_tt = torch.mul(attns, time_weight_mx)  # temporal attention weight, (1, 100, 100)

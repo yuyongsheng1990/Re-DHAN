@@ -52,7 +52,7 @@ def cal_similarity_node_edge(multi_r_data, features, save_path=None):
 
 
 # 返回filtered neighbor index
-def RL_neighbor_filter(multi_r_data, RL_thtesholds, load_path):  # (2, 487962), (2, 8050), (2,51499)
+def RL_neighbor_filter(multi_r_data, RL_thtesholds, load_path, device):  # (2, 487962), (2, 8050), (2,51499)
     load_path = load_path + '/relation_config.npy'
     relation_config = np.load(load_path, allow_pickle=True)  # dict: 3. 4762, neighbor similarity
     relation_config = relation_config.tolist()
@@ -63,13 +63,15 @@ def RL_neighbor_filter(multi_r_data, RL_thtesholds, load_path):  # (2, 487962), 
         edge_index: Tensor = multi_r_data[i]  # 二维矩阵，(2, 487962); (2, 8050); (2,51499), node -> neighbors
         unique_nodes = edge_index[1].unique()  # neighbor 4762, 这里应该也弄反了，应该是取node而不是neighbor, edge_index[0]
         num_nodes = unique_nodes.size(0)  # 指的是neighbor number
-        remain_node_index = torch.tensor([])
+        num_nodes = torch.tensor(num_nodes).to(device)
+        remain_node_index = torch.tensor([]).to(device)
         for node in range(num_nodes):
             # extract config，得到sorted neighbor nodes，sorted neighbor idx
-            neighbors_idx = relation_config[relations[i]][node]['neighbors_idx']
+            neighbors_idx = relation_config[relations[i]][node]['neighbors_idx'].to(device)
             num_neighbors = relation_config[relations[i]][node]['num_neighbors']
-            sorted_neighbors = relation_config[relations[i]][node]['sorted_neighbors']  # 指的是相似度排序sorted similarity
-            sorted_index = relation_config[relations[i]][node]['sorted_index']  # 指的是sorted neighbor index
+            num_neighbors = torch.tensor(num_neighbors).to(device)
+            sorted_neighbors = relation_config[relations[i]][node]['sorted_neighbors'].to(device)  # 指的是相似度排序sorted similarity
+            sorted_index = relation_config[relations[i]][node]['sorted_index'].to(device)  # 指的是sorted neighbor index
 
             if num_neighbors < 5:
                 remain_node_index = torch.cat((remain_node_index, neighbors_idx))

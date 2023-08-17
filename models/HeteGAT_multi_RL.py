@@ -106,31 +106,13 @@ class HeteGAT_multi_RL(nn.Module):
             layers.append(nn.Sequential(*list(m for m in attn_list)))
         return nn.Sequential(*list(m for m in layers))
 
-    # # tensor version: 将二维矩阵list 转换成adj matrix list
-    def relations_to_adj(self, r_data, nb_nodes=None, device='cup'):
-
-        data = torch.ones(r_data.shape[1]).to(device)
-        relation_mx = torch.sparse_coo_tensor(indices=r_data, values=data, size=[nb_nodes, nb_nodes],
-                                              dtype=torch.int32)
-        return relation_mx.to_dense()
-
-    # tensor version: 计算偏差矩阵
-    def adj_to_bias(self, adj, nhood=1, device='cpu'):  # adj,(3025, 3025); sizes, [3025]
-        mt = torch.eye(adj.shape[0]).to(device)
-        for _ in range(nhood):
-            adj = torch.add(adj, torch.eye(adj.shape[1]).to(device))
-            mt = torch.matmul(mt, adj)  # 相乘
-        mt = torch.where(mt > 0, 1, mt)
-        return (-1e9 * (1.0 - mt))  # 科学计数法，2.5 x 10^(-27)表示为：2.5e-27
-
-    def forward(self, features, filtered_multi_r_data, batch_nodes, adjs, n_ids, device, RL_thresholds):
+    def forward(self, features, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds):
         embed_list = []
         features = features.to(device)
+        batch_nodes = batch_nodes.to(device)
         # multi-head attention in a hierarchical manner
-        for i, (biases) in enumerate(filtered_multi_r_data):
+        for i, (biases) in enumerate(biases_mat_list):
             biases = biases.to(device)
-            adj = self.relations_to_adj(biases, torch.tensor(self.nb_nodes).to(device), device)
-            biases = self.adj_to_bias(adj, torch.tensor(1).to(device), device)
             attns = []
             '''
             (n_ids[i])  # (2596,); (137,); (198,)
@@ -138,7 +120,7 @@ class HeteGAT_multi_RL(nn.Module):
             edge_index=tensor([[]]), e_id=None, size=(137,129); edge_index=tensor([[]]), e_id=None, size=(129, 100)
             edge_index=tensor([[]]), e_id=None, size=(198,152); edge_index=tensor([[]]), e_id=None, size=(152, 100)
             '''
-            batch_nodes = batch_nodes.to(device)
+
             # -----------------1-layer MLP------------------------------------------------
             mlp_features = self.mlp(features[n_ids[i]])
 
