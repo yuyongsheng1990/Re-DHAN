@@ -93,8 +93,8 @@ class GCNConv(nn.Module):
         # rand(size)随机抽取[0,1)之间的数据组成size的tensor；nn.Parameter将不可训练tensor变成可训练tensor
 
     # 定义forward函数
-    def forward(self, x, adj):
-        A = adj + torch.eye(adj.size(0))
+    def forward(self, x, adj, device):
+        A = adj + torch.eye(adj.size(0)).to(device)
         D_mx = torch.diag(torch.sum(A, 1))
         D_hat = D_mx.inverse().sqrt()
         A_hat = torch.mm(torch.mm(D_hat, A), D_hat)
@@ -120,16 +120,19 @@ class PPGCN(nn.Module):
         self.elu = nn.ELU()
         self.relu = nn.ReLU()
 
-    def forward(self, features_list, adj_mat_list, batch_node_list, device):
+    def forward(self, features, adj_mat_list, batch_nodes, device):
+        features = features.to(device)
+        batch_nodes = batch_nodes.to(device)
         embed_list = []
-        for i, (feat, adj_mx) in enumerate(zip(features_list, adj_mat_list)):
-            batch_nodes = batch_node_list[i]
-            batch_feature = feat[batch_nodes]  # (100, 302)
+        for i, (adj_mx) in enumerate(adj_mat_list):
+            # batch_nodes = batch_node_list[i]
+            adj_mx = adj_mx.to(device)
+            batch_feature = features[batch_nodes]  # (100, 302)
             batch_adj = adj_mx[batch_nodes][:, batch_nodes]  # (100, 100)
             batch_feature = self.norm(batch_feature)
-            h1 = self.conv1(batch_feature, batch_adj)
+            h1 = self.conv1(batch_feature, batch_adj, device)
             h1 = self.sig(h1)
-            h2 = self.conv2(h1, batch_adj)
+            h2 = self.conv2(h1, batch_adj, device)
             h2 = self.norm_2(h2)
             embed_list.append(h2)
         embed = torch.stack(embed_list, dim=0)

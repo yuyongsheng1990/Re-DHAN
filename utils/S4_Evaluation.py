@@ -75,7 +75,7 @@ class AverageNonzeroTripletsMetric(Metric):
         return 'Average nonzero triplets'
 
 
-def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_nodes, save_path, former_save_path, # extract_features (952, 192); y, (4762); indices, (952,)
+def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_nodes, save_path, former_save_path=None, # extract_features (952, 192); y, (4762); indices, (952,)
              is_validation=True, cluster_type='kmeans'):
     message = ''
     message += '\nEpoch '
@@ -98,7 +98,7 @@ def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_node
     message += str(n_classes)
     message += '\n\t' + mode + ' NMI: '
     message += str(nmi)
-    message += '\n\t' + mode + ' AMi: '
+    message += '\n\t' + mode + ' AMI: '
     message += str(ami)
     message += '\n\t' + mode + ' ARI: '
     message += str(ari)

@@ -1,11 +1,15 @@
 import torch
 import torch.nn as nn
-
+from GraphCL.aug import normalize_adj
 class Discriminator(nn.Module):
     def __init__(self, n_h):
         super(Discriminator, self).__init__()
-        self.f_k = nn.Bilinear(n_h, n_h, n_h)  # input_ft1, input_ft264, out_ft; 64, 1, 64
-
+        self.f_k = nn.Bilinear(n_h, n_h, 1)  # input_ft1, input_ft264, out_ft; 64, 1, 64
+        self.elu_1 = nn.ELU()
+        self.elu_2 = nn.ELU()
+        self.norm = nn.BatchNorm1d(n_h)
+        self.sft_1 = nn.Softmax()
+        self.sft_2 = nn.Softmax()
         for m in self.modules():
             self.weights_init(m)
 
@@ -19,14 +23,21 @@ class Discriminator(nn.Module):
     def forward(self, aug_embed, h_pos, h_neg, device, s_bias1=None, s_bias2=None):
 
         aug_embed, h_pos, h_neg = aug_embed.to(device), h_pos.to(device), h_neg.to(device)
-        aug_x = aug_embed.expand_as(h_pos)
+        sc_1 = torch.cosine_similarity(aug_embed, h_pos).unsqueeze(dim=1)
+        sc_2 = torch.cosine_similarity(aug_embed, h_neg).unsqueeze(dim=1)
+        logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
 
+        """
+        aug_x = aug_embed.expand_as(h_pos)
         # Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。
         # pos对齐，相似度为1，neg为0. 表明是graph-level embedding 的一致性
         sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=1).unsqueeze(dim=1)  # 处理原始特征 tensor, dim=0, (1,64); dim=1, (64,1)
         # sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=0).unsqueeze(0)  # 处理原始特征 tensor, (1,64)
+        sc_1 = normalize_adj(sc_1)
+
         sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=1).unsqueeze(1)  # 处理shuffled原始特征 tensor, (1,64)
         # sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=0).unsqueeze(0)  # 处理shuffled原始特征 tensor, (1,64)
+        sc_2 = normalize_adj(sc_2)
 
         if s_bias1 is not None:
             sc_1 += s_bias1
@@ -35,6 +46,7 @@ class Discriminator(nn.Module):
 
         # logits = torch.cat((sc_1, sc_2), 1)  # (1,128)
         logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
+        """
 
         return logits
 

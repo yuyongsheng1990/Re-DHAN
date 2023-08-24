@@ -19,7 +19,7 @@ class MLP_model(nn.Module):
                 Dropout(),
                 Linear(hid_dim, out_dim),)
 
-    def forward(self, batch_features):  # (100,302)
-
+    def forward(self, batch_features, device):  # (100,302)
+        batch_features = batch_features.to(device)
         vector = self.mlp(batch_features)
         return vector  # (100, 128)

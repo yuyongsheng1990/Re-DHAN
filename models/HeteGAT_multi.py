@@ -64,13 +64,15 @@ class HeteGAT_multi(nn.Module):
             layers.append(nn.Sequential(*list(m for m in attn_list)))
         return nn.Sequential(*list(m for m in layers))
 
-    def forward(self, features_list, biases_mat_list, batch_node_list, device, RL_thresholds):  # feature_list, list:3, (4762,302); bias_mat_list, list: 3,(4762, 4762); batch_nodes, 100个train_idx
+    def forward(self, features, biases_mat_list, batch_nodes, device, RL_thresholds):  # feature_list, list:3, (4762,302); bias_mat_list, list: 3,(4762, 4762); batch_nodes, 100个train_idx
         embed_list = []
-
+        features = features.to(device)
+        batch_nodes = batch_nodes.to(device)
         # multi-head attention in a hierarchical manner
-        for i, (features, biases) in enumerate(zip(features_list, biases_mat_list)):  # (4762,302); (4762, 4762)
+        for i, (biases) in enumerate(biases_mat_list):  # (4762,302); (4762, 4762)
+            biases = biases.to(device)
             attns = []
-            batch_nodes = batch_node_list[i]  # 100个train_idx
+            # batch_nodes = batch_node_list[i]  # 100个train_idx
             batch_feature = features[batch_nodes]  # (100, 302)
             batch_time = features[batch_nodes][:, -2:-1] * 10000 # (100, 1)  # 恢复成days representation
             batch_bias = biases[batch_nodes][:,batch_nodes]  # (100, 100)
@@ -87,7 +89,7 @@ class HeteGAT_multi(nn.Module):
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding
-        final_embed, att_val = self.simpleAttnLayer(multi_embed, RL_thresholds)  # (100, 64)
+        final_embed, att_val = self.simpleAttnLayer(multi_embed, device, RL_thresholds)  # (100, 64)
         # final_embed = torch.mul(multi_embed, RL_thresholds).reshape(len(batch_nodes), -1)
         # out = []
         # # 添加一个全连接层做预测(final_embedding, prediction) -> (100, 3)

@@ -12,13 +12,34 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GATConv, GCNConv  # PyG封装好的GATConv函数
-from torch.nn import Linear, BatchNorm1d, Sequential, ModuleList, ReLU, Dropout
+from torch.nn import Linear, BatchNorm1d, Sequential, ModuleList, ReLU, Dropout, ELU
 from models.MyGCN import MyGCN
 
-from layers.S1_GAT_Model import Intra_AGG
+# from layers.S1_GAT_Model import Intra_AGG
 from models.Attn_Head import Attn_Head, Temporal_Attn_Head, SimpleAttnLayer
-from models.MLP_model import MLP_model
+# from models.MLP_model import MLP_model
 
+class GAT(nn.Module):
+    '''
+    adopt this module when using mini-batch
+    '''
+
+    def __init__(self, in_dim, hid_dim, out_dim, heads) -> None:  # in_dim, 302; hid_dim, 128; out_dim, 64, heads, 4
+        super(GAT, self).__init__()
+        self.GAT1 = GATConv(in_channels=in_dim, out_channels=hid_dim, heads=heads,
+                            add_self_loops=False)  # 这只是__init__函数声明变量
+        self.GAT2 = GATConv(in_channels=hid_dim * heads, out_channels=out_dim, add_self_loops=False)  # 隐藏层维度，输出维度64
+        self.layers = ModuleList([self.GAT1, self.GAT2])
+        self.norm = BatchNorm1d(heads * hid_dim)  # 将num_features那一维进行归一化，防止梯度扩散
+
+    def forward(self, x, adjs, device):  # 这里的x是指batch node feature embedding， adjs是指RL_samplers 采样的batch node 子图 edge
+        for i, (edge_index, _, size) in enumerate(adjs):  # adjs list包含了从第L层到第1层采样的结果，adjs中子图是从大到小的。adjs(edge_index,e_id,size), edge_index是子图中的边
+            # x: Tensor, edge_index: Tensor
+            x, edge_index = x.to(device), edge_index.to(device)  # x: (2703, 302); (2, 53005); -> x: (1418, 512); (2, 2329)
+            x_target = x[:size[1]]  # (1418, 302); (100, 512) Target nodes are always placed first; size是子图shape, shape[1]即子图 node number; x[:size[1], : ]即取出前n个node
+            x = self.layers[i]((x, x_target), edge_index)  # 这里调用的是forward函数, layers[1] output (1418, 512) out_dim * heads; layers[2] output (100, 64)
+            del edge_index
+        return x
 # HAN model with RL
 class HeteGAT_multi_RL(nn.Module):
     '''
@@ -45,9 +66,9 @@ class HeteGAT_multi_RL(nn.Module):
         # self.residual = residual
 
         # # 1层 hierarchical attention module - 1 from HAN model
-        self.layers_1 = self.first_make_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
+        self.layers_1 = self.normal_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
         # 1-layer temporal attention model from HAN model
-        self.layers_2 = self.second_make_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
+        self.layers_2 = self.temporal_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
         # self.layers_2 = self.second_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.hid_dim)
 
         # 1-layer nn.conv1d
@@ -59,9 +80,9 @@ class HeteGAT_multi_RL(nn.Module):
 
         # 2层 GAT module - 2 from FinEvent
         # self.GNN_args = (self.feature_size, int(hid_dim / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
-        self.GNN_args = (hid_dim, int(hid_dim / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
+        self.GNN_args = hid_dim, int(hid_dim / 2), hid_dim, 4  # 300, hid_dim=128, out_dim=64, heads=4
         # self.GNN_args = (hid_dim, int(hid_dim / 2), out_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
-        self.intra_aggs = nn.ModuleList([Intra_AGG(self.GNN_args) for _ in range(self.bias_mx_len)])
+        self.intra_aggs = nn.ModuleList([GAT(hid_dim, int(hid_dim / 2), hid_dim, 4) for _ in range(self.bias_mx_len)])
 
         # 1层GCNconv
         self.GCNConv = GCNConv(out_dim, out_dim)
@@ -73,9 +94,13 @@ class HeteGAT_multi_RL(nn.Module):
         self.GATConv = GATConv(out_dim, out_dim)
 
         # 1-layer MLP
-        self.mlp = MLP_model(self.feature_size, int(self.feature_size/2), hid_dim)
-        # self.mlp = MLP_model(hid_dim, int(hid_dim/2), hid_dim)
-        # self.mlp = MLP_model(out_dim, int(out_dim/2), out_dim)
+        # self.mlp = MLP_model(self.feature_size, int(self.feature_size/2), hid_dim)
+        self.mlp = nn.Sequential(
+                    Linear(self.feature_size, int(self.feature_size/2)),
+                    BatchNorm1d(int(self.feature_size/2)),
+                    ELU(inplace=True),
+                    Dropout(),
+                    Linear(int(self.feature_size/2), hid_dim),)
 
         # normalization, 防止梯度扩散
         # self.norm = BatchNorm1d(hid_dim)
@@ -85,7 +110,7 @@ class HeteGAT_multi_RL(nn.Module):
 
 
     # first layter attention. (100, 302) -> (100, 128)
-    def first_make_attn_head(self, attn_input_dim, attn_out_dim):
+    def normal_attn_head(self, attn_input_dim, attn_out_dim):
         layers = []
         for i in range(self.bias_mx_len):  # 3
             attn_list = []
@@ -96,7 +121,7 @@ class HeteGAT_multi_RL(nn.Module):
         return nn.Sequential(*list(m for m in layers))
 
     # second layer attention. (100, 128) -> (100, 64)
-    def second_make_attn_head(self, attn_input_dim, attn_out_dim):
+    def temporal_attn_head(self, attn_input_dim, attn_out_dim):
         layers = []
         for i in range(self.bias_mx_len):  # 3
             attn_list = []
@@ -113,6 +138,7 @@ class HeteGAT_multi_RL(nn.Module):
         # multi-head attention in a hierarchical manner
         for i, (biases) in enumerate(biases_mat_list):
             biases = biases.to(device)
+            batch_features = features[n_ids[i]].to(device)
             attns = []
             '''
             (n_ids[i])  # (2596,); (137,); (198,)
@@ -122,7 +148,7 @@ class HeteGAT_multi_RL(nn.Module):
             '''
 
             # -----------------1-layer MLP------------------------------------------------
-            mlp_features = self.mlp(features[n_ids[i]])
+            mlp_features = self.mlp(batch_features)
 
             # -----------------1-layer Linear------------------------------------------------
             # mlp_features = self.linear(features[n_ids[i]])
@@ -204,7 +230,6 @@ class HeteGAT_multi_RL(nn.Module):
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding
         final_embed, att_val = self.simpleAttnLayer(multi_embed, device, RL_thresholds)  # (100, 64)
-        # final_embed = torch.mul(multi_embed, RL_thresholds).reshape(len(batch_nodes), -1)
         del multi_embed
         gc.collect()
         # out = []

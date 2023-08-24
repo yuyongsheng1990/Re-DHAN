@@ -34,7 +34,7 @@ class Attn_Head(nn.Module):
         # reshape x and bias_mx for nn.Conv1d
         seq = torch.unsqueeze(seq, dim=0)
         seq = torch.transpose(seq, 2, 1)  # (1, 37, 100)
-        bias_mx = torch.unsqueeze(bias_mx, dim=0)  # (1, 100, 100)
+        bias_mx = torch.unsqueeze(bias_mx, dim=0).to(device)  # (1, 100, 100)
         seq_fts = self.conv1(seq)  # x*Wv=v, 一维卷积操作, out: (1, 16, 100)
 
         f_1 = self.conv2_1(seq_fts)  # x*Wq=q,(1, 1, 100)
@@ -204,18 +204,21 @@ class SimpleAttnLayer(nn.Module):
         inputs: tensor, (3025, 64)
         attention_size: 128
         '''
+        batch_size = x.shape[0]
         if isinstance(x, tuple):
             # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
             inputs = torch.concat(x, 2)  # 表示在shape第2个维度上拼接
-        x = x.to(device)
+        x = x.to(device)  # v
         v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128) 作为attention q
         vu = torch.matmul(v, self.u_omega)  # (100,2,1) qk相乘得一维相似度向量
         alphas = self.softmax(vu)
         # 在meta-path aggregation weight上加入meta-path, 需要保持shape一致
-        # tensor_rl = RL_thresholds  # (3, 1)
-        # alphas = torch.add(alphas, tensor_rl)  # (100, 3, 1)
+        # tensor_rl = RL_thresholds   # (3, 1)
+        alphas = torch.add(alphas, RL_thresholds)/2  # (100, 3, 1)
 
         output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
+        # # output = torch.mul(x, alphas.reshape(alphas.shape[0],-1,1)).reshape(batch_size, -1)  # (100,2,64)*(100,1,2) -> (100,64)
+        # # output = torch.mean(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # intra mean
 
         if not self.return_alphas:
             return output

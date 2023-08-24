@@ -198,7 +198,7 @@ class MySampler(object):
     def sample(self, multi_relational_edge_index: List[Tensor], node_idx, sizes, batch_size):
         if self.sampler == 'RL_sampler':
             return self._RL_sample(multi_relational_edge_index, node_idx, sizes, batch_size)
-        elif self.sampler == 'randdom_sampler':
+        elif self.sampler == 'random_sampler':
             return self._random_sample(multi_relational_edge_index, node_idx, batch_size)
         elif self.sampler == 'const_sampler':
             return self._const_sample(multi_relational_edge_index, node_idx, batch_size)
