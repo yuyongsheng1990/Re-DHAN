@@ -12,7 +12,6 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATConv, GCNConv  # PyG封装好的GATConv函数
 from torch.nn import Linear, BatchNorm1d, Sequential, ModuleList, ReLU, Dropout
 
-
 class GAT(nn.Module):
     '''
     adopt this module when using mini-batch

@@ -32,7 +32,8 @@ from layers.S4_Global_localGCL import GlobalLocalGraphContrastiveLoss
 from baselines.MarGNN import MarGNN
 from baselines.PPGCN import PPGCN
 from baselines.lda2vec import ldaEmbedding_fn
-# from baselines.KPGNN import KPGNN
+from baselines.bert_model import bertEmbedding_fn
+from baselines.KPGNN import KPGNN
 
 from utils.S2_gen_dataset import create_offline_homodataset, create_multi_relational_graph, MySampler, save_embeddings
 from utils.S4_Evaluation import AverageNonzeroTripletsMetric, evaluate
@@ -188,10 +189,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
     # step2: load data
     relation_ids: List[str] = ['entity', 'userid', 'word']
-    homo_data = create_offline_homodataset(args.data_path, [train_i, i])  # (4762, 302), 包含x: feature embedding和y: label, generate train_slices (3334), val_slices (952), test_slices (476)
+    homo_data = create_offline_homodataset(embedding_save_path + '/block_' + str(i), [train_i, i])  # (4762, 302), 包含x: feature embedding和y: label, generate train_slices (3334), val_slices (952), test_slices (476)
     # 返回entity, userid, word的homogeneous adj mx中non-zero neighbor idx。二维矩阵，node -> non-zero neighbor idx, (2,487962), (2,8050), (2, 51498)
     # features_list = [homo_data.x.to(device) for _ in range(3)]  # list:3, (4762, 302)
-    multi_r_data = create_multi_relational_graph(args.data_path, relation_ids, [train_i, i])
+    multi_r_data = create_multi_relational_graph(embedding_save_path + '/block_' + str(i), relation_ids, [train_i, i])
     num_relations = len(multi_r_data)  # 3
     # load data to device
     multi_r_data = [r_data.to(device) for r_data in multi_r_data]
@@ -214,8 +215,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
     # Multi-Agent
     # initialize RL thresholds, RL_threshold: [[.5],[.5],[.5]]
-    if train_i != 0:
-        best_rl_path = embedding_save_path + '/block_' + str(i-1) + '/' + model_name + '/models/best.pt'
+    if (train_i != 0) and (model_name == 'ReDHAN' or 'FinEvent'):
+        best_rl_path = embedding_save_path + '/block_' + str(i-1) + '/' + model_name + '/models/best_rl_thres.pt'
         RL_thresholds = torch.load(best_rl_path).to(device)
     else:
         RL_thresholds = torch.FloatTensor(args.threshold_start0).to(device)  # [[0.2], [0.2], [0.2]]
@@ -265,6 +266,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
         # baseline 4: KPGNN。方案1：multi_r_data + FinEvent + constant_sampler; 方案2：multi_r_data + KPGNN + constant_sampler.
         # filtered_multi_r_data = [filtered_r_data.to(device) for filtered_r_data in multi_r_data]
+        # model = KPGNN(feat_dim, args.hid_dim, args.out_dim, args.heads, num_relations=num_relations)
 
     else:
         biases_mat_list = [relations_to_adj(r_data, torch.tensor(num_dim).to(device), device) for r_data in multi_r_data]
@@ -284,7 +286,10 @@ def offline_FinEvent_model(train_i,  # train_i=0
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     # record training log
-    message = '\n------Start initial training /maintaining using block' + str(i) + '------\n'
+    if i==0:
+        message = '\n------------------Start initial training ------------------------\n'
+    else:
+        message = '\n---------------maintaining using block' + str(i) + '------\n'
     print(message)
     with open(save_path_i + '/log.txt', 'a') as f:
         f.write(message)
@@ -324,7 +329,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
     if model_name == 'BERT':
         print('-------------------BERT----------------------------')
         # baseline 3: BERT embedding
-        bert_embeddings = np.load(embedding_save_path +'/block_' + str(i) + '/bert_embeddings.npy')
+        bert_embeddings = bertEmbedding_fn(embedding_save_path, i)
+        # # bert_embeddings = np.load(embedding_save_path +'/block_' + str(i) + '/bert_embeddings.npy')
         bert_embeddings = torch.FloatTensor(bert_embeddings)
         print(bert_embeddings.shape)
         # we recommend to forward all nodes and select the validation indices instead
@@ -349,10 +355,13 @@ def offline_FinEvent_model(train_i,  # train_i=0
         save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
         save_embeddings(homo_data.y, save_path_i, file_name='labels.pt')
 
+        if train_i != 0:
+            epoch_num = -2
+
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
                             indices=homo_data.test_mask,
-                            epoch=-1,
+                            epoch=epoch_num,
                             num_isolated_nodes=0,
                             save_path=save_path_i,
                             is_validation=False,
@@ -393,10 +402,13 @@ def offline_FinEvent_model(train_i,  # train_i=0
         save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
         save_embeddings(homo_data.y, save_path_i, file_name='labels.pt')
 
+        if train_i != 0:
+            epoch_num = -2
+
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
                             indices=homo_data.test_mask,
-                            epoch=-1,
+                            epoch=epoch_num,
                             num_isolated_nodes=0,
                             save_path=save_path_i,
                             is_validation=False,
@@ -411,13 +423,17 @@ def offline_FinEvent_model(train_i,  # train_i=0
         sys.exit()
 
     if train_i != 0:
-        print('-------------------incremental detection----------------------------')
         model.eval()
+        message = '\n------------incremental detection' + str(i) + '------\n'
+        print(message)
         "-----------------loading best model---------------"
         # step18: load the best model of the current block
         best_model_path = embedding_save_path + '/block_' + str(i-1) + '/' + model_name + '/models/best.pt'
         checckpoint = torch.load(best_model_path)
-        model.load_state_dict(checckpoint['model'])
+        if model_name == "ReDHAN":
+            checckpoint['model'].pop('fc.bias')
+            checckpoint['model'].pop('fc.weight')
+        model.load_state_dict(checckpoint['model'], strict=False)
         print('Last Stream best model loaded.')
 
         # we recommend to forward all nodes and select the validation indices instead
@@ -446,6 +462,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
             # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
+            # pred = model(homo_data.x, batch_nodes, adjs, n_ids, device)  # KPGNN model
 
             extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
             del pred
@@ -457,7 +474,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
                             indices=homo_data.test_mask,
-                            epoch=-1,
+                            epoch=-2,
                             num_isolated_nodes=0,
                             save_path=save_path_i,
                             former_save_path=former_save_path,
@@ -509,6 +526,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
             # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
+            # pred = model(homo_data.x, batch_nodes, adjs, n_ids, device)  # KPGNN model
 
             loss_outputs = loss_fn(pred, batch_labels)  # (12.8063), 179
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs  # GCN loss, 这不是梯度爆炸吗
@@ -606,6 +624,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             ret = ret_1 + ret_2
             # logits, (1,6654)
             gcl_loss = gcl_loss_fn(ret.cpu(), lbl)  # ret, (1,128); lbl, (1,128)
+            # """
             """
             # ---------------new GraphCL v2.0-----------------------------------------
             # # subgraph pos cat subgraph neg -> [1,0]
@@ -742,6 +761,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
             # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
+            # pred = model(homo_data.x, batch_nodes, adjs, n_ids, device)  # KPGNN model
 
             extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
 
@@ -803,9 +823,9 @@ def offline_FinEvent_model(train_i,  # train_i=0
     # step18: load the best model of the current block
     best_model_path = save_path_i + '/models/best.pt'
     checkpoint = torch.load(best_model_path)
-    # start_epoch = checkpoint['epoch']
+    # # start_epoch = checkpoint['epoch']
     model.load_state_dict(checkpoint['model'])
-    # optimizer.load_state_dict(checkpoint['optimizer'])
+    # # optimizer.load_state_dict(checkpoint['optimizer'])
     print('Best model loaded.')
 
     # del homo_data, multi_r_data
@@ -840,6 +860,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
         # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
         # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
+        # pred = model(homo_data.x, batch_nodes, adjs, n_ids, device)  # KPGNN model
 
         extract_features = torch.cat((extract_features, pred.cpu().detach()), dim=0)
         del pred

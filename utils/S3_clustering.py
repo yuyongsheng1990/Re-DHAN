@@ -111,7 +111,7 @@ def run_dbscan(extract_features, extract_labels, indices, save_path, former_save
     message = '**DBSCAN best eps**: {:.2f}, min_samples: {:d}'.format(best_eps, best_cnum) + '\n'
     message += '**Best NMI: {:.4f}; **Best AMI: {:.4f}; **Best ARI: {:.4f}'.format(best_nmi, best_ami, best_ari) + '\n'
     print(message)
-    with open(save_path + 'dbscan_log.txt', 'a') as f:
+    with open(save_path + '/dbscan_log.txt', 'a') as f:
         f.write(message)
 
     # Extract labels

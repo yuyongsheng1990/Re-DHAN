@@ -61,7 +61,7 @@ df['date'] = [d.date() for d in df['created_at']]
 # -------------------------------------------------------------------
 # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
 init_day = df.loc[0, 'date']
-df = df[(df['date']>= init_day + datetime.timedelta(days=0)) & (df['date']<= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
+df = df[(df['date']>= init_day + datetime.timedelta(days=1)) & (df['date']<= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
 print(df.shape)   # (4762, 18)
 print(df.event_id.nunique())  # 57
 print(df.user_id.nunique())  # 4355
@@ -98,13 +98,13 @@ print('Time features generated.')
 combined_features = np.concatenate((d_features, t_features), axis=1)
 print('Concatenated document features and time features.')
 
-np.save('../data/combined_features.npy', combined_features)
+np.save('../data/offline_embeddings/block_0/combined_features.npy', combined_features)
 print('Initial features saved.')
 
 # -----------------------------------------------------------------------------
 # load combined features
 # the dimension of combined_feature is 302 in this dataset: document_features-300 + time_features-2
-combined_features = np.load('../data/combined_features.npy')  # (4762, 302)
+combined_features = np.load('../data/offline_embeddings/block_0/combined_features.npy')  # (4762, 302)
 
 # generate test graphs, features, and labels
 offline_save_path = '../data'

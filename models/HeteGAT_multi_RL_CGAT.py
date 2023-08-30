@@ -19,25 +19,53 @@ from models.MyGCN import MyGCN
 from models.Attn_Head import Attn_Head, Temporal_Attn_Head, SimpleAttnLayer
 # from models.MLP_model import MLP_model
 
-class GAT(nn.Module):
+# 构建图卷积层
+# 搭建graph convolution layer
+class GCNConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(GCNConv, self).__init__()
+        self.relu = nn.ELU()
+        self.w = nn.Parameter(torch.rand(in_channels, out_channels), requires_grad=True)  # 初始化参数矩阵。
+        # rand(size)随机抽取[0,1)之间的数据组成size的tensor；nn.Parameter将不可训练tensor变成可训练tensor
+
+    # 定义forward函数
+    def forward(self, x, adj, device):
+        A = adj + torch.eye(adj.size(0)).to(device)
+        D_mx = torch.diag(torch.sum(A, 1))
+        D_hat = D_mx.inverse().sqrt()
+        A_hat = torch.mm(torch.mm(D_hat, A), D_hat)
+        mm_1 = torch.mm(A_hat, x)
+        vector = self.relu(torch.mm(mm_1, self.w))
+        return vector
+
+# new GAT model：attention计算relative importance，convolution pass
+class CGAT(nn.Module):
     '''
     adopt this module when using mini-batch
     '''
 
     def __init__(self, in_dim, hid_dim, out_dim, heads) -> None:  # in_dim, 302; hid_dim, 128; out_dim, 64, heads, 4
-        super(GAT, self).__init__()
-        self.GAT1 = GATConv(in_channels=in_dim, out_channels=hid_dim, heads=heads,
+        super(CGAT, self).__init__()
+        self.GAT1 = GATConv(in_channels=in_dim, out_channels=in_dim, heads=heads,
                             add_self_loops=False)  # 这只是__init__函数声明变量
-        self.GAT2 = GATConv(in_channels=hid_dim * heads, out_channels=out_dim, add_self_loops=False)  # 隐藏层维度，输出维度64
-        self.layers = ModuleList([self.GAT1, self.GAT2])
-        self.norm = BatchNorm1d(heads * hid_dim)  # 将num_features那一维进行归一化，防止梯度扩散
+        self.CONV_1 = GCNConv(in_channels=heads * in_dim, out_channels=hid_dim)
+
+        self.GAT2 = GATConv(in_channels=hid_dim, out_channels=out_dim, add_self_loops=False)  # 隐藏层维度，输出维度64
+        self.CONV_2 = GCNConv(in_channels=hid_dim, out_channels=out_dim)
+        self.GAT_layers = ModuleList([self.GAT1, self.GAT2])
+        self.GONV_layers = ModuleList([self.CONV_1, self.CONV_2])
+
+        self.sig = nn.Sigmoid()
+        self.norm = BatchNorm1d(hid_dim)  # 将num_features那一维进行归一化，防止梯度扩散
 
     def forward(self, x, adjs, device):  # 这里的x是指batch node feature embedding， adjs是指RL_samplers 采样的batch node 子图 edge
         for i, (edge_index, _, size) in enumerate(adjs):  # adjs list包含了从第L层到第1层采样的结果，adjs中子图是从大到小的。adjs(edge_index,e_id,size), edge_index是子图中的边
             # x: Tensor, edge_index: Tensor
             x, edge_index = x.to(device), edge_index.to(device)  # x: (2703, 302); (2, 53005); -> x: (1418, 512); (2, 2329)
             x_target = x[:size[1]]  # (1418, 302); (100, 512) Target nodes are always placed first; size是子图shape, shape[1]即子图 node number; x[:size[1], : ]即取出前n个node
-            x = self.layers[i]((x, x_target), edge_index)  # 这里调用的是forward函数, layers[1] output (1418, 512) out_dim * heads; layers[2] output (100, 64)
+
+            x = self.GAT_layers[i]((x, x_target), edge_index)  # 这里调用的是forward函数, layers[1] output (1418, 512) out_dim * heads; layers[2] output (100, 64)
+
             del edge_index
         return x
 # HAN model with RL
@@ -80,9 +108,9 @@ class HeteGAT_multi_RL(nn.Module):
 
         # 2层 GAT module - 2 from FinEvent
         # self.GNN_args = (self.feature_size, int(hid_dim / 2), hid_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
-        self.GNN_args = hid_dim, int(hid_dim / 2), hid_dim, 4  # 300, hid_dim=128, out_dim=64, heads=4
+        # self.GNN_args = hid_dim, int(hid_dim / 2), hid_dim, 4  # 300, hid_dim=128, out_dim=64, heads=4
         # self.GNN_args = (hid_dim, int(hid_dim / 2), out_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
-        self.intra_aggs = nn.ModuleList([GAT(hid_dim, int(hid_dim / 2), hid_dim, 4) for _ in range(self.bias_mx_len)])
+        self.intra_aggs = nn.ModuleList([CGAT(hid_dim, int(hid_dim / 2), hid_dim, 4) for _ in range(self.bias_mx_len)])
 
         # 1层GCNconv
         self.GCNConv = GCNConv(out_dim, out_dim)
@@ -101,7 +129,7 @@ class HeteGAT_multi_RL(nn.Module):
                     ELU(inplace=True),
                     Dropout(),
                     Linear(int(self.feature_size/2), hid_dim),)
-        # self.mlp_list = nn.ModuleList
+
         # normalization, 防止梯度扩散
         # self.norm = BatchNorm1d(hid_dim)
 
