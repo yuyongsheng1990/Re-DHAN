@@ -179,7 +179,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
     # step1: make dir for graph i
     # ./incremental_0808//embeddings_0403005348/block_xxx
     i, train_i = 0, 0   # set which incremental detection stream is
-    model_name = 'ReDHAN'  # 更换detection模型
+    model_name = 'HAN'  # 更换detection模型
     save_path_i = embedding_save_path + '/block_' + str(i) + '/' + model_name  # + '/'
     if not os.path.exists(save_path_i):
         os.makedirs(save_path_i)
@@ -188,7 +188,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
     device = torch.device('cuda' if torch.cuda.is_available() and args.use_cuda else 'cpu')
 
     # step2: load data
-    relation_ids: List[str] = ['entity', 'userid', 'word']
+    relation_ids: List[str] = ['entity', 'userid', 'word']  # twitter dataset
+    # relation_ids: List[str] = ['entity', 'word']  # MAVEN dataset
     homo_data = create_offline_homodataset(embedding_save_path + '/block_' + str(i), [train_i, i])  # (4762, 302), 包含x: feature embedding和y: label, generate train_slices (3334), val_slices (952), test_slices (476)
     # 返回entity, userid, word的homogeneous adj mx中non-zero neighbor idx。二维矩阵，node -> non-zero neighbor idx, (2,487962), (2,8050), (2, 51498)
     # features_list = [homo_data.x.to(device) for _ in range(3)]  # list:3, (4762, 302)
@@ -204,6 +205,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
     attn_drop = args.attn_drop
     feat_drop = args.feat_drop
     time_lambda = args.time_lambda  # 时间衰减参数
+    print('message numbers: ', num_dim)
 
     # prepare graph configs for node filtering
     if args.is_initial:
@@ -220,6 +222,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         RL_thresholds = torch.load(best_rl_path).to(device)
     else:
         RL_thresholds = torch.FloatTensor(args.threshold_start0).to(device)  # [[0.2], [0.2], [0.2]]
+        # RL_thresholds = torch.FloatTensor([[0.2], [0.2]]).to(device)  # MAVEN RL_thresholds, [[0.2], [0.2], [0.2]]
     # RL_filter means extract limited sorted neighbors based on RL_threshold and neighbor similarity, return filtered node -> neighbor index
     if args.sampler == 'RL_sampler':
         filtered_multi_r_data = RL_neighbor_filter(multi_r_data, RL_thresholds,
@@ -232,11 +235,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
     if model is None:  # pre-training stage in our paper
         # print('Pre-Train Stage...')
         # # HAN_0 model without RL_filter and Neighbor_sampler
-        # adj_mx_list = [relations_to_adj(r_data, torch.tensor(num_dim).to(device), device) for r_data in multi_r_data]
-        # biases_mat_list = [adj_to_bias(adj, torch.tensor(1).to(device), device)  for adj in adj_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        # model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
-        #                       feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,  # 时间衰减参数，默认: -0.2
-        #                       bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
+        adj_mx_list = [relations_to_adj(r_data, torch.tensor(num_dim).to(device), device) for r_data in multi_r_data]
+        biases_mat_list = [adj_to_bias(adj, torch.tensor(1).to(device), device)  for adj in adj_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
+        model = HeteGAT_multi(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+                              feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim,  # 时间衰减参数，默认: -0.2
+                              bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
 
         # # HAN_1 model with RL_filter and no Neighbor_sampler
         # adj_mx_list = relations_to_adj(filtered_multi_r_data, nb_nodes=num_dim)
@@ -247,11 +250,11 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
         # HAN_2 model with RL_filter and Neighbor_sampler，这要torch_geometric重写HAN模型，要不然用不上FinEvent中的neighbor_sampler.
         # 所以，既要用到adjs_list for RL_sampler，也要用到bias_list for HAN algorithm.
-        adj_mx_list = [relations_to_adj(filtered_r_data, torch.tensor(num_dim).to(device), device) for filtered_r_data in filtered_multi_r_data]  # 邻接矩阵list:3,tensor, (4762,4762)
-        biases_mat_list = [adj_to_bias(adj, torch.tensor(1).to(device), device) for adj in adj_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
-                                        feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda=args.time_lambda,  # 时间衰减参数，默认: -0.2
-                                        bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
+        # adj_mx_list = [relations_to_adj(filtered_r_data, torch.tensor(num_dim).to(device), device) for filtered_r_data in filtered_multi_r_data]  # 邻接矩阵list:3,tensor, (4762,4762)
+        # biases_mat_list = [adj_to_bias(adj, torch.tensor(1).to(device), device) for adj in adj_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
+        # model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+        #                                 feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda=args.time_lambda,  # 时间衰减参数，默认: -0.2
+        #                                 bias_mx_len=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
 
         # baseline 1: feat_dim=302; hidden_dim=128; out_dim=64; heads=4; inter_opt=cat_w_avg; is_shared=False
         # model = MarGNN((feat_dim, args.hid_dim, args.out_dim, args.heads),
@@ -457,8 +460,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             adjs, n_ids = sampler.sample(filtered_multi_r_data, node_idx=batch_nodes, sizes=[-1, -1],
                                          batch_size=args.batch_size)
 
-            # pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
+            # pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
             # pred = model(homo_data.x[batch_nodes])  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
@@ -521,8 +524,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
             # batch_node_list = [batch_nodes.to(device) for _ in range(3)]
 
-            # pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
+            # pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # Fin-Event pred: x表示combined feature embedding, 302; pred, 其实是个embedding (100,192)
             # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
@@ -566,7 +569,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             """
-            # """
+            """
             '''----------new GraphCL loss function with subgraph augmentation from whole graph-------------------------'''
             batch_features = homo_data.x[batch_nodes]
             # Random sample 80% nodes from batch_features
@@ -756,8 +759,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             adjs, n_ids = sampler.sample(filtered_multi_r_data, node_idx=batch_nodes, sizes=[-1, -1],
                                          batch_size=args.batch_size)
 
-            # pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-            pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+            pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
+            # pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
             # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
             # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
             # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model
@@ -855,8 +858,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
         adjs, n_ids = sampler.sample(filtered_multi_r_data, node_idx=batch_nodes, sizes=[-1, -1],
                                      batch_size=args.batch_size)
 
-        # pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
-        pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
+        pred = model(homo_data.x, biases_mat_list, batch_nodes, device, RL_thresholds)  # HAN_0/HAN_1 pred: (100, 192)
+        # pred = model(homo_data.x, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2 model
         # pred = model(homo_data.x, adjs, n_ids, device, RL_thresholds)  # baseline-1: MarGNN pred
         # pred = model(homo_data.x[batch_nodes], device)  # MLP baseline, (100, 302) -> (100, 128)
         # pred = model(homo_data.x, adj_mx_list, batch_nodes, device)  # PPGCN-2 baseline model

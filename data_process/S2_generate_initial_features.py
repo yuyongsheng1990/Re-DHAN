@@ -32,39 +32,60 @@ import en_core_web_lg  # spacy提供的预训练语言模型，将文本标记�
 
 load_path = '../data/raw dataset'  # 相对路径，..表示上上级路径
 result_path = '../result'
+dataset_name = 'MAVEN' # 'Twitter'
+if dataset_name == 'Twitter':
+    # load dataset
+    p_part1 = load_path + '/68841_tweets_multiclasses_filtered_0722_part1.npy'
+    print(p_part1)
+    p_part2 = load_path + '/68841_tweets_multiclasses_filtered_0722_part2.npy'
+    # Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
+    df_np_part1 = np.load(p_part1, allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
+    df_np_part2 = np.load(p_part2, allow_pickle=True)
+    df = np.concatenate((df_np_part1, df_np_part2),axis=0) # 按行拼接
+    print('loaded data.')
+    df = pd.DataFrame(data=df, columns=['event_id','tweet_id','text','user_id','created_at','user_loc','place_type',
+                                          'place_full_name','place_country_code','hashtags','user_mentions','image_urls',
+                                          'entities','words','filtered_words','sampled_words'])
+    # sort date by time
+    df = df.sort_values(by='created_at').reset_index(drop=True)
+    # append date
+    df['date'] = [d.date() for d in df['created_at']]
+    # # -------------------remove outliers--------------------------------
+    # df_count = df.event_id.value_counts().to_frame()
+    # df_count_2 = df_count[df_count.event_id >= 2].reset_index()
+    # # extract and descend according to time
+    # df = df[df.event_id.isin(df_count_2.index)]
+    # print(df.shape)
+    # print(df.event_id.nunique())
+    # -------------------------------------------------------------------
+    # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
+    init_day = df.loc[0, 'date']
+    df = df[(df['date'] >= init_day + datetime.timedelta(days=1)) & (
+                df['date'] <= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
+    print(df.shape)  # (4762, 18)
+    print(df.event_id.nunique())  # 57
+    print(df.user_id.nunique())  # 4355
 
-# load dataset
-p_part1 = load_path + '/68841_tweets_multiclasses_filtered_0722_part1.npy'
-print(p_part1)
-p_part2 = load_path + '/68841_tweets_multiclasses_filtered_0722_part2.npy'
-# Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
-df_np_part1 = np.load(p_part1, allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
-df_np_part2 = np.load(p_part2, allow_pickle=True)
-df = np.concatenate((df_np_part1, df_np_part2),axis=0) # 按行拼接
-print('loaded data.')
-df = pd.DataFrame(data=df, columns=['event_id','tweet_id','text','user_id','created_at','user_loc','place_type',
-                                      'place_full_name','place_country_code','hashtags','user_mentions','image_urls',
-                                      'entities','words','filtered_words','sampled_words'])
+elif dataset_name == 'MAVEN':
+    p_part1 = load_path + '/all_df_words_ents_mids.npy'
+    # Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
+    df_part1 = np.load(p_part1,
+                       allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
+    print('loaded data.')
+    # df = pd.DataFrame(data=df_part1, columns=['document_ids', 'sentence_ids', 'sentences', 'event_type_ids',
+    #                                           'words', 'unique_words', 'entities', 'message_ids'])
+    df = pd.DataFrame(data=df_part1, columns=['user_id', 'sentence_ids', 'text', 'event_id',
+                                              'words', 'filtered_words', 'entities', 'tweet_id'])
+    df['created_at'] = pd.to_datetime('2012-10-10')
+    df['date'] = pd.to_datetime('2012-10-10')
+    df['user_mentions'] = df.user_id.apply(lambda x: [])
+    df['sampled_words'] = df['filtered_words']
+    print('Data converted to dataframe.')
+    print(df.shape)  # (4762, 18)
+    print(df.event_id.nunique())  # 57
+    print(df.user_id.nunique())  # 4355
 print('Data converted to dataframe.')
 
-# sort date by time
-df = df.sort_values(by='created_at').reset_index(drop=True)
-# append date
-df['date'] = [d.date() for d in df['created_at']]
-# # -------------------remove outliers--------------------------------
-# df_count = df.event_id.value_counts().to_frame()
-# df_count_2 = df_count[df_count.event_id >= 2].reset_index()
-# # extract and descend according to time
-# df = df[df.event_id.isin(df_count_2.index)]
-# print(df.shape)
-# print(df.event_id.nunique())
-# -------------------------------------------------------------------
-# 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
-init_day = df.loc[0, 'date']
-df = df[(df['date']>= init_day + datetime.timedelta(days=1)) & (df['date']<= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
-print(df.shape)   # (4762, 18)
-print(df.event_id.nunique())  # 57
-print(df.user_id.nunique())  # 4355
 # --------------------------------------------------------------------
 
 # calculate the embeddings of all the documents in the dataframe
@@ -90,7 +111,6 @@ def df_to_t_features(df):
 # 生成文档embedding
 d_features = documents_to_features(df)
 print('Document features generated')
-
 # 生成时间特征days和seconds
 t_features = df_to_t_features(df)
 print('Time features generated.')
