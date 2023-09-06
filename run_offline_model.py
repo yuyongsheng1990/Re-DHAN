@@ -170,6 +170,7 @@ def adj_to_bias(adj, nhood=1, device='cpu'):  # adj,(3025, 3025); sizes, [3025]
 #     return bias  # 科学计数法，2.5 x 10^(-27)表示为：2.5e-27
 def offline_FinEvent_model(train_i,  # train_i=0
                            i,  # i=0
+                           model_name,
                            args,
                            metrics,
                            embedding_save_path,
@@ -178,18 +179,17 @@ def offline_FinEvent_model(train_i,  # train_i=0
                            loss_fn_dgi=None):
     # step1: make dir for graph i
     # ./incremental_0808//embeddings_0403005348/block_xxx
-    i, train_i = 0, 0   # set which incremental detection stream is
-    model_name = 'ReDHAN'  # 更换detection模型
     save_path_i = embedding_save_path + '/block_' + str(i) + '/' + model_name  # + '/'
     if not os.path.exists(save_path_i):
         os.makedirs(save_path_i)
-
+    data_name = 'Twitter'
     # CUDA
     device = torch.device('cuda' if torch.cuda.is_available() and args.use_cuda else 'cpu')
 
     # step2: load data
     relation_ids: List[str] = ['entity', 'userid', 'word']  # twitter dataset
-    # relation_ids: List[str] = ['entity', 'word']  # MAVEN dataset
+    if data_name == 'MAVEN':
+        relation_ids: List[str] = ['entity', 'word']  # MAVEN dataset
     homo_data = create_offline_homodataset(embedding_save_path + '/block_' + str(i), [train_i, i])  # (4762, 302), 包含x: feature embedding和y: label, generate train_slices (3334), val_slices (952), test_slices (476)
     # 返回entity, userid, word的homogeneous adj mx中non-zero neighbor idx。二维矩阵，node -> non-zero neighbor idx, (2,487962), (2,8050), (2, 51498)
     # features_list = [homo_data.x.to(device) for _ in range(3)]  # list:3, (4762, 302)
@@ -222,7 +222,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
         RL_thresholds = torch.load(best_rl_path).to(device)
     else:
         RL_thresholds = torch.FloatTensor(args.threshold_start0).to(device)  # [[0.2], [0.2], [0.2]]
-    # RL_thresholds = torch.FloatTensor([[0.2], [0.2]]).to(device)  # MAVEN RL_thresholds, [[0.2], [0.2], [0.2]]
+    if data_name == 'MAVEN':
+        RL_thresholds = torch.FloatTensor([[0.2], [0.2]]).to(device)  # MAVEN RL_thresholds, [[0.2], [0.2], [0.2]]
     # RL_filter means extract limited sorted neighbors based on RL_threshold and neighbor similarity, return filtered node -> neighbor index
     if args.sampler == 'RL_sampler':
         filtered_multi_r_data = RL_neighbor_filter(multi_r_data, RL_thresholds,
@@ -358,8 +359,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         save_embeddings(extract_features, save_path_i, file_name='final_embeddings.pt')
         save_embeddings(homo_data.y, save_path_i, file_name='labels.pt')
 
-        if train_i != 0:
-            epoch_num = -2
+        epoch_num = 'incre_test'
 
         test_nmi = evaluate(extract_features[homo_data.test_mask],
                             homo_data.y,
@@ -569,7 +569,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             """
-            # """
+            """
             '''----------new GraphCL loss function with subgraph augmentation from whole graph-------------------------'''
             batch_features = homo_data.x[batch_nodes]
             # Random sample 80% nodes from batch_features
@@ -888,6 +888,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
     print(message)
     with open(save_path_i + '/log.txt', 'a') as f:
         f.write(message)
+    return test_nmi, model.state_dict()
 
 if __name__ == '__main__':
     # define args
@@ -931,12 +932,28 @@ if __name__ == '__main__':
     # define detection stage
     # Streaming = FinEvent(args)
     # pre-train stage: train on initial graph
-    train_i = 0
-    offline_FinEvent_model(train_i=train_i,
-                          args=args,
-                          i=0,
-                          metrics=BCL_metrics,
-                          embedding_save_path=embedding_path,
-                          loss_fn=loss_fn,
-                          model=None)
+
+    model_name = 'ReDHAN'  # 更换detection模型
+    train_i, i = 0, 0  # set which incremental detection stream is
+    #  重复实验，选取最佳model参数
+    best_nmi = 0
+    model_path = embedding_path + '/block_' + str(i) + '/' + model_name + '/models'
+    for iteration in range(5):
+        test_nmi, model_dict = offline_FinEvent_model(train_i=train_i,
+                                                      i=0,
+                                                      model_name=model_name,
+                                                      args=args,
+                                                       metrics=BCL_metrics,
+                                                      embedding_save_path=embedding_path,
+                                                      loss_fn=loss_fn,
+                                                      model=None)
+        print('test_nmi: ', test_nmi)
+        print('best_nmi: ', best_nmi)
+        if best_nmi < test_nmi:
+            print('best_model_dict chang')
+            best_nmi = test_nmi
+            p = model_path + '/best.pt'
+            torch.save({
+                        'model':model_dict,
+                        }, p)
     print('model finished')

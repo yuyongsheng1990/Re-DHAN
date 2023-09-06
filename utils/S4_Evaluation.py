@@ -131,4 +131,4 @@ def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_node
     if is_validation:
         return nmi
     else:
-        pass
+        return nmi

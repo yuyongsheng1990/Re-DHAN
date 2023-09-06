@@ -61,7 +61,7 @@ if dataset_name == 'Twitter':
     # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
     init_day = df.loc[0, 'date']
     df = df[(df['date'] >= init_day + datetime.timedelta(days=0)) & (
-                df['date'] <= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
+                df['date'] <= init_day + datetime.timedelta(days=0))].reset_index(drop=True)  # (11971, 18)
     print(df.shape)  # (4762, 18)
     print(df.event_id.nunique())  # 57
     print(df.user_id.nunique())  # 4355
