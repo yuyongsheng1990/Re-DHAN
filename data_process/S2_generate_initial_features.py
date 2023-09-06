@@ -32,7 +32,7 @@ import en_core_web_lg  # spacy提供的预训练语言模型，将文本标记�
 
 load_path = '../data/raw dataset'  # 相对路径，..表示上上级路径
 result_path = '../result'
-dataset_name = 'MAVEN' # 'Twitter'
+dataset_name = 'Twitter'  # 'MAVEN'
 if dataset_name == 'Twitter':
     # load dataset
     p_part1 = load_path + '/68841_tweets_multiclasses_filtered_0722_part1.npy'
@@ -60,7 +60,7 @@ if dataset_name == 'Twitter':
     # -------------------------------------------------------------------
     # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
     init_day = df.loc[0, 'date']
-    df = df[(df['date'] >= init_day + datetime.timedelta(days=1)) & (
+    df = df[(df['date'] >= init_day + datetime.timedelta(days=0)) & (
                 df['date'] <= init_day + datetime.timedelta(days=1))].reset_index(drop=True)  # (11971, 18)
     print(df.shape)  # (4762, 18)
     print(df.event_id.nunique())  # 57
