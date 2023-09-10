@@ -22,31 +22,32 @@ class Discriminator(nn.Module):
     # aug_1 embedding, (90,64); original embedding(100,64); shuffle original fts,(100,64)
     def forward(self, aug_embed, h_pos, h_neg, device, s_bias1=None, s_bias2=None):
 
+        # # --------------original version--------------------------------
+        # aug_embed, h_pos, h_neg = aug_embed.to(device), h_pos.to(device), h_neg.to(device)
+        # aug_x = aug_embed.expand_as(h_pos).to(device)
+        # # Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。
+        # # pos对齐，相似度为1，neg为0. 表明是graph-level embedding 的一致性
+        # sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=1).unsqueeze(dim=1)  # 处理原始特征 tensor, dim=0, (1,64); dim=1, (64,1)
+        # # sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=0).unsqueeze(0)  # 处理原始特征 tensor, (1,64)
+        # sc_1 = normalize_adj(sc_1)
+        #
+        # sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=1).unsqueeze(1)  # 处理shuffled原始特征 tensor, (1,64)
+        # # sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=0).unsqueeze(0)  # 处理shuffled原始特征 tensor, (1,64)
+        # sc_2 = normalize_adj(sc_2)
+        #
+        # if s_bias1 is not None:
+        #     sc_1 += s_bias1
+        # if s_bias2 is not None:
+        #     sc_2 += s_bias2
+        #
+        # # logits = torch.cat((sc_1, sc_2), 1)  # (1,128)
+        # logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
+
+        # --------------cosine version-------------------------------
         aug_embed, h_pos, h_neg = aug_embed.to(device), h_pos.to(device), h_neg.to(device)
         sc_1 = torch.cosine_similarity(aug_embed, h_pos).unsqueeze(dim=1)
         sc_2 = torch.cosine_similarity(aug_embed, h_neg).unsqueeze(dim=1)
         logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
-
-        """
-        aug_x = aug_embed.expand_as(h_pos)
-        # Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。
-        # pos对齐，相似度为1，neg为0. 表明是graph-level embedding 的一致性
-        sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=1).unsqueeze(dim=1)  # 处理原始特征 tensor, dim=0, (1,64); dim=1, (64,1)
-        # sc_1 = torch.sum(self.f_k(h_pos, aug_x), dim=0).unsqueeze(0)  # 处理原始特征 tensor, (1,64)
-        sc_1 = normalize_adj(sc_1)
-
-        sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=1).unsqueeze(1)  # 处理shuffled原始特征 tensor, (1,64)
-        # sc_2 = torch.sum(self.f_k(h_neg, aug_x), dim=0).unsqueeze(0)  # 处理shuffled原始特征 tensor, (1,64)
-        sc_2 = normalize_adj(sc_2)
-
-        if s_bias1 is not None:
-            sc_1 += s_bias1
-        if s_bias2 is not None:
-            sc_2 += s_bias2
-
-        # logits = torch.cat((sc_1, sc_2), 1)  # (1,128)
-        logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
-        """
 
         return logits
 

@@ -17,7 +17,7 @@ from models.MyGCN import MyGCN
 
 # from layers.S1_GAT_Model import Intra_AGG
 from models.Attn_Head import Attn_Head, Temporal_Attn_Head, SimpleAttnLayer
-# from models.MLP_model import MLP_model
+from models.MLP_model import MLP_model
 
 class GAT(nn.Module):
     '''
@@ -145,9 +145,8 @@ class HeteGAT_multi_RL(nn.Module):
             edge_index=tensor([[]]), e_id=None, size=(137,129); edge_index=tensor([[]]), e_id=None, size=(129, 100)
             edge_index=tensor([[]]), e_id=None, size=(198,152); edge_index=tensor([[]]), e_id=None, size=(152, 100)
             '''
-
             # -----------------1-layer MLP------------------------------------------------
-            mlp_features = self.mlp_list[i](batch_features)
+            mlp_features = self.mlp(batch_features, device)
 
             # -----------------1-layer Linear------------------------------------------------
             # mlp_features = self.linear(features[n_ids[i]])

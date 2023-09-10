@@ -40,9 +40,13 @@ from utils.S4_Evaluation import AverageNonzeroTripletsMetric, evaluate
 
 from models.HeteGAT_multi import HeteGAT_multi
 from models.HeteGAT_multi_RL import HeteGAT_multi_RL
+from models.HeteGAT_multi_RL_CGAT import HeteGAT_multi_RL_CGAT
+from models.HeteGAT_multi_RL_CGAT2 import HeteGAT_multi_RL_CGAT2
+from models.HeteGAT_multi_RL_CGAT3 import HeteGAT_multi_RL_CGAT3
+
 from models.MLP_model import MLP_model
 
-from GraphCL import aug, discriminator
+from GraphCL import aug, discriminator, discriminator2
 def args_register():
     parser = argparse.ArgumentParser()  # 创建参数对象
     # 添加参数
@@ -253,7 +257,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
         # 所以，既要用到adjs_list for RL_sampler，也要用到bias_list for HAN algorithm.
         adj_mx_list = [relations_to_adj(filtered_r_data, torch.tensor(num_dim).to(device), device) for filtered_r_data in filtered_multi_r_data]  # 邻接矩阵list:3,tensor, (4762,4762)
         biases_mat_list = [adj_to_bias(adj, torch.tensor(1).to(device), device) for adj in adj_mx_list]  # 偏差矩阵list:3,tensor, (4762,4762)
-        model = HeteGAT_multi_RL(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
+        model = HeteGAT_multi_RL_CGAT2(feature_size=feat_dim, nb_classes=nb_classes, nb_nodes=num_dim, attn_drop=attn_drop,
                                         feat_drop=feat_drop, hid_dim=args.hid_dim, out_dim=args.out_dim, time_lambda=args.time_lambda,  # 时间衰减参数，默认: -0.2
                                         num_relations=num_relations, hid_units=[8], n_heads=[8,1], activation=nn.ELU())
 
@@ -304,10 +308,14 @@ def offline_FinEvent_model(train_i,  # train_i=0
     best_vali_nmi = 1e-9
     best_epoch = 0
     wait = 0
-    gcl_loss_fn = nn.CrossEntropyLoss()  # nn.BCEWithLogitsLoss()
+    gcl_loss_fn = nn.BCEWithLogitsLoss()
     # gl_loss_fn = GlobalLocalGraphContrastiveLoss(args.gl_eps)
     gcl_dropout_percent = 0.1
-    gcl_disc = discriminator.Discriminator(args.out_dim)
+    disc2_bool = False
+    if disc2_bool:
+        gcl_disc = discriminator2.Discriminator2(args.out_dim)
+    else:
+        gcl_disc = discriminator.Discriminator(args.out_dim)
     gcl_disc.to(device)
     para_t = args.para_t  # triplet loss加权概率
     para_s = args.para_s  # GraphCL loss 加权概率
@@ -533,6 +541,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
 
             loss_outputs = loss_fn(pred, batch_labels)  # (12.8063), 179
             loss = loss_outputs[0] if type(loss_outputs) in (tuple, list) else loss_outputs  # GCN loss, 这不是梯度爆炸吗
+            print('triplet_loss: ', loss)
             """
               '''----------old GraphCL loss function with subgraph augmentation from batch graph-------------------------'''
             # 原来GraphCL RL sampler是从batch_bias中采样，取不到足够多的structure information，只会让对比效果下降！
@@ -569,7 +578,7 @@ def offline_FinEvent_model(train_i,  # train_i=0
             h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, aug_adjs, aug_n_ids, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
             """
-            """
+            # """
             '''----------new GraphCL loss function with subgraph augmentation from whole graph-------------------------'''
             batch_features = homo_data.x[batch_nodes]
             # Random sample 80% nodes from batch_features
@@ -602,31 +611,42 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # h_pos = model(homo_data.x, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1计算正样本 positive feature embeddings, (100, 64)
             # h_neg = model(features_neg_list, gcl_biases_mat_list, batch_node_list, device, RL_thresholds)  # HAN_0/HAN_1构建负样本 negative feature embeddings
             h_pos = pred.clone()
-            h_neg = model(features_neg, gcl_normalized_r_data_list, batch_nodes, adjs, n_ids, device,
-                          RL_thresholds)  # HAN_2构建负样本 negative feature embeddings
+            h_neg = model(features_neg, gcl_normalized_r_data_list, batch_nodes, adjs, n_ids, device, RL_thresholds)  # HAN_2构建负样本 negative feature embeddings
+            # h_neg = model(features_neg, adjs, n_ids, device, RL_thresholds)   # FinEvent
             # 构建subgraph augmentation embedding
             # h_aug_1 = model(aug_fts_list1, aug_bias_list1, aug_sub_node_list1, device, RL_thresholds)  # HAN_0/HAN_1 构建 subgraph augmentation embeddings, (90, 64)
             # h_aug_2 = model(aug_fts_list2, aug_bias_list2, aug_sub_node_list2, device, RL_thresholds)  # HAN_0/HAN_1 计算正样本 subgraph augmentation embeddings
             aug_adjs_1, aug_n_ids_1 = sampler.sample(filtered_multi_r_data,
                                                      node_idx=sub_nodes_1, sizes=[-1, -1],
                                                      batch_size=len(sub_nodes_2))  # RL_sampler from aug_adj for HAN_2
-            h_aug_1 = model(homo_data.x, biases_mat_list, sub_nodes_1, aug_adjs_1, aug_n_ids_1, device,
-                            RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
+            h_aug_1 = model(homo_data.x, biases_mat_list, sub_nodes_1, aug_adjs_1, aug_n_ids_1, device, RL_thresholds)  # HAN_2 构建 subgraph augmentation embeddings, (90, 64)
+            # h_aug_1 = model(homo_data.x, aug_adjs_1, aug_n_ids_1, device, RL_thresholds)  # FinEvent 构建 subgraph augmentation embeddings, (90, 64)
             aug_adjs_2, aug_n_ids_2 = sampler.sample(filtered_multi_r_data,
                                                      node_idx=sub_nodes_2, sizes=[-1, -1],
                                                      batch_size=len(sub_nodes_2))  # RL_sampler from aug_adj for HAN_2
-            h_aug_2 = model(homo_data.x, biases_mat_list, sub_nodes_2, aug_adjs_2, aug_n_ids_2, device,
-                            RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
+            h_aug_2 = model(homo_data.x, biases_mat_list, sub_nodes_2, aug_adjs_2, aug_n_ids_2, device, RL_thresholds)  # HAN_2 计算正样本 subgraph augmentation embeddings
+            # h_aug_2 = model(homo_data.x, aug_adjs_2, aug_n_ids_2, device, RL_thresholds)  # FinEvent 计算正样本 subgraph augmentation embeddings
 
-            # readout
-            c_aug_1 = F.sigmoid(torch.mean(h_aug_1, 0))  # (64,)
-            c_aug_2 = F.sigmoid(torch.mean(h_aug_2, 0))
             # discriminator. Bilinear双向线性映射，将subgraph embedding 与pos embedding对齐；将sub embedding 2与neg embedding对齐。pos对齐，相似度为1，neg为0.
-            ret_1 = gcl_disc(c_aug_1, h_pos, h_neg, device)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
-            ret_2 = gcl_disc(c_aug_2, h_pos, h_neg, device)  # (100, 384) # BiLinear
-            ret = ret_1 + ret_2
-            # logits, (1,6654)
-            gcl_loss = gcl_loss_fn(ret.cpu(), lbl)  # ret, (1,128); lbl, (1,128)
+            if disc2_bool:
+                ret_1 = gcl_disc(h_aug_1, h_pos, h_neg, device)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
+                ret_2 = gcl_disc(h_aug_2, h_pos, h_neg, device)  # (100, 384) # BiLinear
+                ret = ret_1 + ret_2
+                gcl_loss = ret / 2
+            else:
+                # logits, (1,6654)
+                # readout
+                c_aug_1 = F.sigmoid(torch.mean(h_aug_1, 0))  # (64,)
+                c_aug_2 = F.sigmoid(torch.mean(h_aug_2, 0))
+                ret_1 = gcl_disc(c_aug_1, h_pos, h_neg, device)  # 鉴别器，本质上是一个预估的插值，做平滑smooth用，它可以对输入图像的微小变化具有一定的鲁棒性
+                ret_2 = gcl_disc(c_aug_2, h_pos, h_neg, device)  # (100, 384) # BiLinear
+                ret = ret_1 + ret_2
+                gcl_loss = gcl_loss_fn(ret.cpu(), lbl)  # ret, (1,128); lbl, (1,128)
+            print('gcl_loss: ', gcl_loss)
+            message = '\n triplet_loss: {:.2f} '.format(loss)
+            message += '\n gcl_loss: {:.2f} '.format(gcl_loss)
+            with open(save_path_i + '/log.txt', 'a') as f:
+                f.write(message)
             # """
             """
             # ---------------new GraphCL v2.0-----------------------------------------
@@ -684,9 +704,8 @@ def offline_FinEvent_model(train_i,  # train_i=0
             # """
             '''------------------三个loss加权求和---------------------------'''
             if gcl_loss is not None:
-                # loss = loss + gcl_loss  # 0.823; 0.732; 0.657
-                loss = loss + para_s * gcl_loss  # 0.828, 0.738, 0.694
-                # loss = para_t * loss + para_s * gcl_loss  # 0.83; 0.732; 0.657
+                loss = loss + gcl_loss  # 0.823; 0.732; 0.657
+
             if gl_loss is not None:
                 loss = para_t * loss + para_g * gl_loss
             losses.append(loss.item())
