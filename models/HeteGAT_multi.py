@@ -42,7 +42,7 @@ class HeteGAT_multi(nn.Module):
         self.simpleAttnLayer = SimpleAttnLayer(out_dim, hid_dim, time_major=False, return_alphas=True)  # 64, 128
         self.fc = nn.Linear(out_dim, nb_classes)  # 64, 3
 
-    # first layter attention. (100, 302) -> (100, 128)
+    # first layer attention. (100, 302) -> (100, 128)
     def first_make_attn_head(self, attn_input_dim, attn_out_dim):
         layers = []
         for i in range(self.bias_mx_len):  # 3
@@ -74,7 +74,7 @@ class HeteGAT_multi(nn.Module):
             attns = []
             # batch_nodes = batch_node_list[i]  # 100个train_idx
             batch_feature = features[batch_nodes]  # (100, 302)
-            batch_time = features[batch_nodes][:, -2:-1] * 10000 # (100, 1)  # 恢复成days representation
+            batch_time = features[batch_nodes][:, -2:-1] * 10000  # (100, 1)  # 恢复成days representation
             batch_bias = biases[batch_nodes][:,batch_nodes]  # (100, 100)
             # 1-st layer. (100, 302) -> (100, 128)
             attn_embed_size = int(batch_feature.shape[1] / self.n_heads[0])  #  feature_size: 302, out_size:128, heads:8

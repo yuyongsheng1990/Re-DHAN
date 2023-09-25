@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from GraphCL.aug import normalize_adj
 class Discriminator2(nn.Module):
     def __init__(self, n_h):
@@ -20,25 +21,34 @@ class Discriminator2(nn.Module):
                 m.bias.data.fill_(0.0)
 
     # aug_1 embedding, (90,64); original embedding(100,64); shuffle original fts,(100,64)
-    def forward(self, aug_embed, h_pos, h_neg, device, s_bias1=None, s_bias2=None):
+    def forward(self, h_aug, h_pos, h_neg, device, s_bias1=None, s_bias2=None):
+        # reference AdaGCL: https://github.com/YL-wang/CIKM_AdaGCL/blob/master/amazon/ns_com.py
 
-        T = 0.2
-        batch_size, _ = h_pos.size()
+        h_aug, h_pos_2, h_neg = h_aug.to(device), h_pos.to(device), h_neg.to(device)
+        T = 0.5  # this temperature hyper-parameter can refer to Dual-channel graph contrastive learning for self-supervised graph-level representation learning.
+        batch_size, _ = h_aug.size()
+        x_aug_abs = h_aug.norm(dim=1)
         x_pos_abs = h_pos.norm(dim=1)
         x_neg_abs = h_neg.norm(dim=1)
-        x_aug_abs = aug_embed.norm(dim=1)
 
-        sim_pos_matrix = torch.einsum('ik,jk->ij', h_pos, aug_embed) / torch.einsum('i,j->ij', x_pos_abs, x_aug_abs)
+        sim_pos_matrix = torch.einsum('ik,jk->ij', h_aug, h_pos_2) / torch.einsum('i,j->ij', x_aug_abs, x_pos_abs)
         sim_pos_matrix = torch.exp(sim_pos_matrix / T)
         pos_sim = sim_pos_matrix[range(batch_size), range(batch_size)]
-        loss_pos = pos_sim / (sim_pos_matrix.sum(dim=1) - pos_sim)
+        pos_sub = sim_pos_matrix.sum(dim=1).unsqueeze(dim=-1) - pos_sim
+        loss_pos = pos_sim / pos_sub  # (100,80)
+        loss_pos = - torch.log(loss_pos).mean()   # positive samples similarity get the smaller, the better
 
-        sim_neg_matrix = torch.einsum('ik,jk->ij', h_neg, aug_embed) / torch.einsum('i,j->ij', x_neg_abs, x_aug_abs)
-        sim_neg_matrix = torch.exp(sim_neg_matrix / T)
-        neg_sim = sim_neg_matrix[range(batch_size), range(batch_size)]
-        loss_neg = neg_sim / (sim_neg_matrix.sum(dim=1) - neg_sim)
+        # sim_neg_matrix = torch.einsum('ik,jk->ij', h_aug, h_neg) / torch.einsum('i,j->ij', x_aug_abs, x_neg_abs)
+        # # negative samples similarity get the smaller, the better, 但是可以通过取反1-p操作，将neg_loss转化成pos_loss
+        # sim_neg_matrix = 1 - sim_neg_matrix
+        # sim_neg_matrix = torch.exp(sim_neg_matrix / T)
+        # neg_sim = sim_neg_matrix[range(batch_size)]
+        # neg_sub = sim_neg_matrix.sum(dim=1).unsqueeze(dim=-1) - neg_sim
+        # loss_neg = neg_sim / neg_sub
+        # loss_neg = - torch.log(loss_neg).mean()
 
-        loss = - torch.log(loss_pos + loss_neg).mean()
+        loss = loss_pos # + loss_neg
 
         return loss
+
 

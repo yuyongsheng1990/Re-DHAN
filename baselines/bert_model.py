@@ -9,7 +9,7 @@ import pandas as pd
 from transformers import AutoTokenizer, AutoModel
 import time
 # --------------------------------laod_tweet_data------------------------------------
-print('--------------------------------laod_tweet_data------------------------------------')
+print('--------------------------------load_tweet_data------------------------------------')
 import os
 # project_path = os.getcwd() + '/Re-HAN_Model'
 project_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # # 获取上上级路径

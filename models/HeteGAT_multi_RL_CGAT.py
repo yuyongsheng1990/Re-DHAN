@@ -3,7 +3,7 @@
 # @Author : yysgz
 # @File : HeteGAT_multi.py
 # @Project : HAN_torch
-# @Description : CGAT1: Convolutional GAT.
+# @Description : CGAT1: Convolutional GAT. GAT message incorporation, gcn pass
 
 import gc
 import numpy as np

@@ -3,7 +3,7 @@
 # @Author : yysgz
 # @File : HeteGAT_multi.py
 # @Project : HAN_torch
-# @Description : CGAT2: MLP + GAT
+# @Description : CGAT2: MLP residual connect + GAT
 
 import gc
 import numpy as np

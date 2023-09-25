@@ -66,7 +66,7 @@ class HeteGAT_multi_RL(nn.Module):
         # self.residual = residual
 
         # # 1层 hierarchical attention module - 1 from HAN model
-        self.layers_1 = self.normal_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
+        # self.layers_1 = self.normal_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
         # 1-layer temporal attention model from HAN model
         self.layers_2 = self.temporal_attn_head(attn_input_dim=hid_dim, attn_out_dim=self.out_dim)
 
@@ -83,14 +83,14 @@ class HeteGAT_multi_RL(nn.Module):
         # self.GNN_args = (hid_dim, int(hid_dim / 2), out_dim, 4)  # 300, hid_dim=128, out_dim=64, heads=4
         self.intra_aggs = nn.ModuleList([GAT(hid_dim, int(hid_dim / 2), hid_dim, 4) for _ in range(self.num_relations)])
 
-        # 1层GCNconv
-        self.GCNConv = GCNConv(out_dim, out_dim)
+        # # 1层GCNconv
+        # self.GCNConv = GCNConv(out_dim, out_dim)
 
-        # 1层GCN model, <-自己定义的
-        self.MyGCN = MyGCN(hid_dim, out_dim)
+        # # 1层GCN model, <-自己定义的
+        # self.MyGCN = MyGCN(hid_dim, out_dim)
 
-        # 1层GATConv
-        self.GATConv = GATConv(out_dim, out_dim)
+        # # 1层GATConv
+        # self.GATConv = GATConv(out_dim, out_dim)
 
         # 1-layer MLP
         # self.mlp = MLP_model(self.feature_size, int(self.feature_size/2), hid_dim)
@@ -100,7 +100,7 @@ class HeteGAT_multi_RL(nn.Module):
                     ELU(inplace=True),
                     Dropout(),
                     Linear(int(self.feature_size/2), hid_dim),)
-        self.mlp_list = nn.ModuleList(self.mlp for _ in range(self.num_relations))
+        # self.mlp_list = nn.ModuleList(self.mlp for _ in range(self.num_relations))
         # normalization, 防止梯度扩散
         # self.norm = BatchNorm1d(hid_dim)
 
@@ -126,7 +126,7 @@ class HeteGAT_multi_RL(nn.Module):
             attn_list = []
             for j in range(self.n_heads[0]):  # 8-head
                 attn_list.append(Temporal_Attn_Head(in_channel=int(attn_input_dim/self.n_heads[0]), out_sz=int(attn_out_dim/self.hid_units[0]),  # in_channel,233; out_sz,8
-                                feat_drop=self.feat_drop, attn_drop=self.attn_drop, activation=self.activation))
+                                feat_drop=self.feat_drop, attn_drop=self.attn_drop))
             layers.append(nn.Sequential(*list(m for m in attn_list)))
         return nn.Sequential(*list(m for m in layers))
 
@@ -145,11 +145,9 @@ class HeteGAT_multi_RL(nn.Module):
             edge_index=tensor([[]]), e_id=None, size=(137,129); edge_index=tensor([[]]), e_id=None, size=(129, 100)
             edge_index=tensor([[]]), e_id=None, size=(198,152); edge_index=tensor([[]]), e_id=None, size=(152, 100)
             '''
-            # -----------------1-layer MLP------------------------------------------------
-            mlp_features = self.mlp(batch_features, device)
 
             # -----------------1-layer Linear------------------------------------------------
-            # mlp_features = self.linear(features[n_ids[i]])
+            mlp_features = self.mlp(features[n_ids[i]])
 
             # ---------------2 GAT layers from FinEvent-------------------------------------
             feature_embedding = self.intra_aggs[i](mlp_features, adjs[i], device)  # (100,128)

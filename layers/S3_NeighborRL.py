@@ -39,7 +39,7 @@ def cal_similarity_node_edge(multi_r_data, features, save_path=None):
             dist: Tensor = torch.norm(neighbors_features - target_features, p=2, dim=1)  # torch.norm求a列维度(dim指定)的2(p指定)范数(长度)，即相似度
             # smaller is better and we use 'top p' in our paper
             # (threshold * num_neighbors) see RL_neighbor_filter for details
-            sorted_neighbors, sorted_index = dist.sort(descending=False)  # 排序后的neighbor相似度，及neighbor index, 注意这里的neighbor也是index形式
+            sorted_neighbors, sorted_index = dist.sort(descending=False)  # 注意这里的sort_index指的是最佳neighbor在neighbors_idx中的索引，草了！
             node_config[node] = {'neighbors_idx': neighbors_idx,
                                 'sorted_neighbors': sorted_neighbors,
                                 'sorted_index': sorted_index,
@@ -54,15 +54,15 @@ def cal_similarity_node_edge(multi_r_data, features, save_path=None):
 # 返回filtered neighbor index
 def RL_neighbor_filter(multi_r_data, RL_thtesholds, load_path, device):  # (2, 487962), (2, 8050), (2,51499)
     load_path = load_path + '/relation_config.npy'
-    relation_config = np.load(load_path, allow_pickle=True)  # dict: 3. 4762, neighbor similarity
-    relation_config = relation_config.tolist()
+    relation_config = np.load(load_path, allow_pickle=True)  # dict: 3. dict: 4762, neighbor similarity
+    relation_config = relation_config.tolist()  # {0: neighbor_idx: tensor([0]), num_neighbors:1, sorted_index: tensor([0]); 1:{....}}
     relations = list(relation_config.keys())  # ['relation_0', 'relation_1', 'relation_2'], entity, userid, word
     multi_remain_data = []
 
     for i in range(len(relations)):  # 3, entity, userid, word
         edge_index: Tensor = multi_r_data[i]  # 二维矩阵，(2, 487962); (2, 8050); (2,51499), node -> neighbors
-        unique_nodes = edge_index[1].unique()  # neighbor 4762, 这里应该也弄反了，应该是取node而不是neighbor, edge_index[0]
-        num_nodes = unique_nodes.size(0)  # 指的是neighbor number
+        unique_nodes = edge_index[1].unique()  # target neighbor node 4762
+        num_nodes = unique_nodes.size(0)  # 指的是neighbor number, 4762
         num_nodes = torch.tensor(num_nodes).to(device)
         remain_node_index = torch.tensor([]).to(device)
         for node in range(num_nodes):
@@ -73,14 +73,19 @@ def RL_neighbor_filter(multi_r_data, RL_thtesholds, load_path, device):  # (2, 4
             sorted_neighbors = relation_config[relations[i]][node]['sorted_neighbors'].to(device)  # 指的是相似度排序sorted similarity
             sorted_index = relation_config[relations[i]][node]['sorted_index'].to(device)  # 指的是sorted neighbor index
 
-            if num_neighbors < 5:
+            if num_neighbors < 5:  # one agent
                 remain_node_index = torch.cat((remain_node_index, neighbors_idx))
                 continue  # add limitations
-
-            threshold = float(RL_thtesholds[i])
+            # DHAN model: A3C
+            elif num_neighbors <= 10:  # second agent
+                threshold = float(RL_thtesholds[i]) + 0.3
+            else:  # third agent
+                threshold = float(RL_thtesholds[i]) + 0.2
+            # # FinEvent model: AC
+            # threshold = float(RL_thtesholds[i])
 
             num_kept_neighbors = math.ceil(num_neighbors * threshold) + 1
-            filtered_neighbors_idx = neighbors_idx[sorted_index[:num_kept_neighbors]]
+            filtered_neighbors_idx = neighbors_idx[sorted_index[:num_kept_neighbors]]  # 注意这里的sort_index指的是最佳neighbor在neighbors_idx中的索引，草了！
             remain_node_index = torch.cat((remain_node_index, filtered_neighbors_idx))
 
         remain_node_index = remain_node_index.type('torch.LongTensor')

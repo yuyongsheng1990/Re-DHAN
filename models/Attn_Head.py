@@ -80,7 +80,7 @@ def time_decay_weight(vectors, time_lambda, device):  # 衰减参数 lambda
 
 # Temporal node attention
 class Temporal_Attn_Head(nn.Module):
-    def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, activation=None, return_attn=False):
+    def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, return_attn=False):
         super(Temporal_Attn_Head, self).__init__()
         # self.bias_mat = bias_mat  # (3025,3025)
         self.feat_drop = feat_drop  # 0.0
@@ -93,7 +93,7 @@ class Temporal_Attn_Head(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         self.feat_dropout = nn.Dropout(feat_drop)
         self.attn_dropout = nn.Dropout(attn_drop)
-        self.activation = activation
+        self.elu = nn.ELU()
 
     def forward(self, x, bias_mx, device, time_lambda, batch_time):  # (100, 16); bias_mx, 残差, (100, 100), batch_time (100, 1)
         seq = x.float().to(device)
@@ -129,9 +129,9 @@ class Temporal_Attn_Head(nn.Module):
         ret = torch.matmul(attns_tt, torch.transpose(seq_fts, 2, 1))  # (1, 100, 8)
 
         if self.return_attn:
-            return self.activation(ret), attns
+            return self.elu(ret), attns
         else:
-            return self.activation(ret)  # activation
+            return self.elu(ret)  # activation
 
 class Self_Attn_Head(nn.Module):
     def __init__(self, in_channel, out_sz, feat_drop=0.0, attn_drop=0.0, activation=None, return_attn=False):
@@ -181,15 +181,15 @@ class Self_Attn_Head(nn.Module):
             return self.activation(ret)  # activation
 
 class SimpleAttnLayer(nn.Module):
-    def __init__(self, inputs, attn_size, time_major=False, return_alphas=False):  # inputs, 64; attention_size,128; return_alphas=True
+    def __init__(self, inputs, attn_size, return_alphas=False):  # inputs, 64; attention_size,128; return_alphas=True
         super(SimpleAttnLayer, self).__init__()
         self.hidden_size = inputs  # 64
         self.return_alphas = return_alphas  # True
-        self.time_major = time_major
         self.w_omega = nn.Parameter(torch.Tensor(self.hidden_size, attn_size))  # (64, 128)
         self.b_omega = nn.Parameter(torch.Tensor(attn_size))  # (128,)
         self.u_omega = nn.Parameter(torch.Tensor(attn_size, 1))  # (128,)
-        self.tanh = nn.Tanh()
+        # self.tanh = nn.Tanh()
+        self.softplus = nn.Softplus()
         self.softmax = nn.Softmax(dim=1)
         self.reset_parameters()
 
@@ -209,12 +209,12 @@ class SimpleAttnLayer(nn.Module):
             # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
             inputs = torch.concat(x, 2)  # 表示在shape第2个维度上拼接
         x = x.to(device)  # v
-        v = self.tanh(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128) 作为attention q
+        v = self.softplus(torch.matmul(x, self.w_omega) + self.b_omega)  # (100,2,128) 作为attention q
         vu = torch.matmul(v, self.u_omega)  # (100,2,1) qk相乘得一维相似度向量
         alphas = self.softmax(vu)
         # 在meta-path aggregation weight上加入meta-path, 需要保持shape一致
-        tensor_rl = RL_thresholds.to(device)  # (3, 1)
-        alphas = torch.add(alphas, tensor_rl) /2 # mean, (100, 3, 1)
+        # tensor_rl = RL_thresholds.to(device)  # (3, 1)
+        # alphas = torch.add(alphas, tensor_rl) / 2  # mean, (100, 3, 1), RL_mean negative < no RL_mean
 
         output = torch.sum(x * alphas.reshape(alphas.shape[0],-1,1), dim=1)  # (100,2,64)*(100,1,2) -> (100,64)
         # # output = torch.mul(x, alphas.reshape(alphas.shape[0],-1,1)).reshape(batch_size, -1)  # (100,2,64)*(100,1,2) -> (100,64)

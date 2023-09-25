@@ -48,7 +48,33 @@ def aug_subgraph(input_fea, input_bias_list, drop_percent=0.2):  # (4286,302); l
 
     return aug_input_fea_list, aug_input_bias_list, aug_sub_node_list  # 抽取子图node features和adjs
 
-# edge perturbations
+# edge perturbations for edge index
+# single node edge index perturbation
+def node_edge_perturbe(edge_index, drop_percent):
+    node_list = edge_index[0]
+    drop_num = max(int(node_list.shape[0] * drop_percent), 1)
+    all_idx_list = [i for i in range(node_list.shape[0])]
+    drop_index_list = random.sample(all_idx_list, drop_num)
+    kp_index_bool = [i not in drop_index_list for i in all_idx_list]
+    kp_edge_index = edge_index[0:, kp_index_bool]
+    return kp_edge_index
+# all nodes edge index perturbation
+def aug_edge_index_perturbation(edge_index, drop_percent=0.2):
+    # unique node id
+    edge_index_0 = edge_index[0, :]
+    uni_nodes = torch.unique(edge_index_0)
+    pert_edge_index = torch.Tensor()
+    for i in uni_nodes:
+        edge_index_0_bool = (edge_index_0 == i)
+        edge_index_extrct = edge_index[0:, edge_index_0_bool]
+        if edge_index_extrct.shape[1] > 1:
+            pert_node_edge_idx = node_edge_perturbe(edge_index_extrct, drop_percent)
+            pert_edge_index = torch.cat((pert_edge_index, pert_node_edge_idx), dim=1)
+        else:
+            pert_edge_index = torch.cat((pert_edge_index, edge_index_extrct), dim=1)
+    return pert_edge_index.int()
+
+# edge perturbations for adj
 def aug_edge_perturbation(input_adj, drop_percent=0.2):
 
     # input_edge_bias_list = []

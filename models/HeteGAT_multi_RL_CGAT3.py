@@ -3,7 +3,7 @@
 # @Author : yysgz
 # @File : HeteGAT_multi.py
 # @Project : HAN_torch
-# @Description : CGAT3: GCN + GAT
+# @Description : CGAT3: GCN residual connect + GAT
 
 import gc
 import numpy as np
