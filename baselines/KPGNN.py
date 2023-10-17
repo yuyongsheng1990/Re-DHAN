@@ -34,10 +34,10 @@ class GAT(nn.Module):
             x, edge_index = x.to(device), edge_index.to(device)  # x: (2703, 302); (2, 53005); -> x: (1418, 512); (2, 2329)
             x_target = x[:size[1]]  # (1418, 302); (100, 512) Target nodes are always placed first; size是子图shape, shape[1]即子图 node number; x[:size[1], : ]即取出前n个node
             x = self.layers[i]((x, x_target), edge_index)  # 这里调用的是forward函数, layers[1] output (1418, 512) out_dim * heads; layers[2] output (100, 64)
-            if i == 0:
-                x = self.norm(x)  # 归一化操作，防止梯度散射
-                x = F.elu(x)  # 非线性激活函数elu
-                # x = F.dropout(x, training=self.training)
+            # if i == 0:
+            #     x = self.norm(x)  # 归一化操作，防止梯度散射
+            #     x = F.elu(x)  # 非线性激活函数elu
+            #     x = F.dropout(x, training=self.training)
             del edge_index
         return x
 

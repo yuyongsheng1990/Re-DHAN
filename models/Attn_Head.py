@@ -198,7 +198,7 @@ class SimpleAttnLayer(nn.Module):
         nn.init.zeros_(self.b_omega)
         nn.init.xavier_uniform_(self.u_omega)
 
-    def forward(self, x, device, RL_thresholds):  # (100,2,64); 将RL sampleing weight 加入到meta-path importance weight
+    def forward(self, x, device):  # (100,2,64); 将RL sampleing weight 加入到meta-path importance weight
         '''
         这是一个点积dot-product attention
         inputs: tensor, (3025, 64)

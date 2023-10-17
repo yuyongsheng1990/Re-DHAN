@@ -8,70 +8,48 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import ModuleList
 
 from torch_geometric.nn import GCNConv
 
-"""  --> negative, 效果很差
+'''
+  - PPGCN-1: 利用torch geometric实现GCN on whole graph。2023.10.21，PyG~double GCN，效果贼好，但嵌入到我的ReDHAN model中，最终结果还是很差，为啥呢？
+  - PPGCN-2: 自己构建convolution operation
+'''
+"""
 # print("------------PPGNC-1----------------------------")
-
 class PPGCN(nn.Module):
-    def __init__(self, inp_dim, hid_dim, out_dim):
+    def __init__(self, feat_dim, hid_dim, out_dim):
         super(PPGCN, self).__init__()
-        self.conv1 = GCNConv(in_channels=inp_dim, out_channels=hid_dim)
+        self.conv1 = GCNConv(in_channels=feat_dim, out_channels=hid_dim)
         self.conv2 = GCNConv(in_channels=hid_dim, out_channels=out_dim)
 
         # 归一化
-        self.norm = nn.BatchNorm1d(inp_dim)
-        self.norm_2 = nn.BatchNorm1d(out_dim)
+        self.norm = nn.BatchNorm1d(hid_dim)
+        self.norm2 = nn.BatchNorm1d(out_dim)
         # 激活函数，防止梯度爆炸
         self.sig = nn.Sigmoid()
-        self.elu = nn.ELU()
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout()
 
-    def forward(self, features_list, multi_r_data, batch_nodes, device):
+    def forward(self, features, multi_r_data, batch_nodes, device):
         embed_list = []  # GCN的二维edge_index，注意adj_mx index需要在range [batch_siza, batch_size]，因为是convolution
-        for i, (feature, edge_index) in enumerate(zip(features_list, multi_r_data)):
-            batch_feature = feature[batch_nodes,:]
-            batch_edge_idx = self.extract_batch_edge_idx(batch_nodes, edge_index)  # 抽取batch edge index
-            batch_feature = self.norm(batch_feature)
-            feature_1 = self.conv1(batch_feature, batch_edge_idx)
-            feature_1 = self.sig(feature_1)
-            feature_2 = self.conv2(feature_1, batch_edge_idx)
-            feature_2 = self.norm_2(feature_2)
-            embed_list.append(feature_2)
+        for i, (edge_index) in enumerate(multi_r_data):
+            x, edge_index = features.to(device), edge_index.to(device)  # (4796, 302)
+            x = self.conv1(x, edge_index)  # (4793, 256)
+            x = self.norm(x)
+            x = self.relu(x)
+            x = self.dropout(x)
+            x = self.conv2(x, edge_index)  # (4793, 128)
+            x = self.norm2(x)
+            x = self.relu(x)
 
-        features = torch.stack(embed_list, dim=0)
-        features = torch.reshape(features, (len(batch_nodes),-1))
+            embed_list.append(F.log_softmax(x[batch_nodes], dim=1))  # (100, 128)
+
+        features = torch.stack(embed_list, dim=0)  # (3,100,128)
+        features = torch.transpose(features, dim0=0, dim1=1)  # (100, 3, 128)
+        features = torch.reshape(features, (len(batch_nodes),-1))  # (100,384)
         return features
-
-    def extract_batch_edge_idx(self, batch_nodes, edge_index):
-        extract_edge_index = torch.Tensor()
-        for i in batch_nodes:
-            extract_edge_i = torch.Tensor()
-            # extract 1-st row index and 2-nd row index
-            edge_index_bool_0 = edge_index[0, :]
-            edge_index_bool_0 = (edge_index_bool_0 == i)
-            if edge_index_bool_0 is None:
-                continue
-            bool_indices_0 = np.where(edge_index_bool_0)[0]
-            # extract data
-            edge_index_0 = edge_index[0:, bool_indices_0]
-            for j in batch_nodes:
-                edge_index_bool_1 = edge_index_0[1, :]
-                edge_index_bool_1 = (edge_index_bool_1 == j)
-                if edge_index_bool_1 is None:
-                    continue
-                bool_indices_1 = np.where(edge_index_bool_1)[0]
-                edge_index_1 = edge_index_0[0:, bool_indices_1]
-                extract_edge_i = torch.cat((extract_edge_i, edge_index_1), dim=1)
-            extract_edge_index = torch.cat((extract_edge_index, extract_edge_i), dim=1)
-        # reset index value in a specific range
-        uni_set = torch.unique(extract_edge_index)
-        to_set = torch.tensor(list(range(len(uni_set))))
-        labels_reset = extract_edge_index.clone().detach()
-        for from_val, to_val in zip(uni_set, to_set):
-            labels_reset = torch.where(labels_reset == from_val, to_val, labels_reset)
-        return labels_reset.type(torch.long)
 # """
 # """
 # print("------------PPGNC-2----------------------------")

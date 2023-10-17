@@ -21,7 +21,7 @@ class HeteGAT_multi(nn.Module):
 
     '''
     def __init__(self, feature_size, nb_classes, nb_nodes, attn_drop, feat_drop, hid_dim, out_dim,
-                 bias_mx_len, hid_units, n_heads, activation=nn.ELU()):
+                 num_relations, hid_units, n_heads, activation=nn.ELU()):
         super(HeteGAT_multi, self).__init__()
         self.feature_size = feature_size  # 302
         self.nb_classes = nb_classes  # 3
@@ -30,7 +30,7 @@ class HeteGAT_multi(nn.Module):
         self.feat_drop = feat_drop  # 0.0
         self.hid_dim = hid_dim  # 128
         self.out_dim = out_dim  # 64
-        self.bias_mx_len = bias_mx_len  # list:3
+        self.bias_mx_len = num_relations  # list:3
         self.hid_units = hid_units  # [8]
         self.n_heads = n_heads  # [8,1]
         self.activation = activation  # nn.ELU
@@ -39,7 +39,7 @@ class HeteGAT_multi(nn.Module):
         self.layers_1 = self.first_make_attn_head(attn_input_dim=self.feature_size, attn_out_dim=self.out_dim)
         self.w_multi = nn.Linear(out_dim, out_dim)
 
-        self.simpleAttnLayer = SimpleAttnLayer(out_dim, hid_dim, time_major=False, return_alphas=True)  # 64, 128
+        self.simpleAttnLayer = SimpleAttnLayer(out_dim, hid_dim, return_alphas=True)  # 64, 128
         self.fc = nn.Linear(out_dim, nb_classes)  # 64, 3
 
     # first layer attention. (100, 302) -> (100, 128)
@@ -53,17 +53,6 @@ class HeteGAT_multi(nn.Module):
             layers.append(nn.Sequential(*list(m for m in attn_list)))  # hierarchical attention layers
         return nn.Sequential(*list(m for m in layers))
 
-    # second layer attention. (100, 128) -> (100, 64)
-    def second_make_attn_head(self, attn_input_dim, attn_out_dim):
-        layers = []
-        for i in range(self.bias_mx_len):  # 3
-            attn_list = []
-            for j in range(self.n_heads[0]):  # 8-head
-                attn_list.append(Temporal_Attn_Head(in_channel=int(attn_input_dim/self.n_heads[0]), out_sz=int(attn_out_dim/self.hid_units[0]),  # in_channel,233; out_sz,8
-                                feat_drop=self.feat_drop, attn_drop=self.attn_drop, activation=self.activation))
-            layers.append(nn.Sequential(*list(m for m in attn_list)))
-        return nn.Sequential(*list(m for m in layers))
-
     def forward(self, features, biases_mat_list, batch_nodes, device, RL_thresholds):  # feature_list, list:3, (4762,302); bias_mat_list, list: 3,(4762, 4762); batch_nodes, 100个train_idx
         embed_list = []
         features = features.to(device)
@@ -74,7 +63,6 @@ class HeteGAT_multi(nn.Module):
             attns = []
             # batch_nodes = batch_node_list[i]  # 100个train_idx
             batch_feature = features[batch_nodes]  # (100, 302)
-            batch_time = features[batch_nodes][:, -2:-1] * 10000  # (100, 1)  # 恢复成days representation
             batch_bias = biases[batch_nodes][:,batch_nodes]  # (100, 100)
             # 1-st layer. (100, 302) -> (100, 128)
             attn_embed_size = int(batch_feature.shape[1] / self.n_heads[0])  #  feature_size: 302, out_size:128, heads:8
@@ -89,7 +77,7 @@ class HeteGAT_multi(nn.Module):
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding
-        final_embed, att_val = self.simpleAttnLayer(multi_embed, device, RL_thresholds)  # (100, 64)
+        final_embed, att_val = self.simpleAttnLayer(multi_embed, device)  # (100, 64)
         # final_embed = torch.mul(multi_embed, RL_thresholds).reshape(len(batch_nodes), -1)
         # out = []
         # # 添加一个全连接层做预测(final_embedding, prediction) -> (100, 3)

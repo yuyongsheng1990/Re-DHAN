@@ -222,7 +222,7 @@ class HeteGAT_multi_RL2(nn.Module):
 
         multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
         # simple attention 合并多个meta-based homo-graph embedding
-        final_embed, att_val = self.simpleAttnLayer(multi_embed, device, RL_thresholds)  # (100, 64)
+        final_embed, att_val = self.simpleAttnLayer(multi_embed, device)  # (100, 64)
         del multi_embed
         gc.collect()
         # out = []

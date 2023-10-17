@@ -90,6 +90,8 @@ def evaluate(extract_features, extract_labels, indices, epoch, num_isolated_node
 
     if is_validation:
         mode = 'validation'
+    elif cluster_type == 'dbscan':
+        mode = 'detection'
     else:
         mode = 'test'
     message += '\tNumber of ' + mode + ' tweets: '

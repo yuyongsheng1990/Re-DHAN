@@ -68,17 +68,11 @@ class HeteGAT_multi_RL4(nn.Module):
                              residual=args.residual)
 
     '''
-    def __init__(self, feature_size, nb_classes, nb_nodes, attn_drop, feat_drop, hid_dim, out_dim, time_lambda,
-                 num_relations, hid_units, n_heads):
+    def __init__(self, feature_size, hid_dim, out_dim, n_heads, num_relations):
         super(HeteGAT_multi_RL4, self).__init__()
         self.feature_size = feature_size  # list:3, (4762, 300)
-        self.nb_classes = nb_classes  # 3
-        self.nb_nodes = nb_nodes  # 4762
-        self.attn_drop = attn_drop  # 0.5
-        self.feat_drop = feat_drop  # 0.0
         self.hid_dim = hid_dim
         self.out_dim = out_dim
-        self.time_lambda = time_lambda  # -0.2
         self.num_relations = num_relations  # list:3, (4762,4762)
         self.hid_units = [4]
         self.n_heads = [2, 1, 4]  # [8,1]
@@ -100,10 +94,10 @@ class HeteGAT_multi_RL4(nn.Module):
 
         # 2层 GAT module - 2 from FinEvent 300,
         # hid_dim=128, out_dim=64, heads=4
-        self.intra_aggs = nn.ModuleList([GraphFormer(self.hid_dim, int(self.hid_dim / 2), self.hid_dim, self.n_heads[0])
-                                         for _ in range(self.num_relations)])   # DHAN-4: original version
-        # self.intra_aggs = nn.ModuleList([GraphFormer(self.feature_size, self.hid_dim, self.out_dim, self.n_heads[0])
-        #                                  for _ in range(self.num_relations)])   # DHAN-4_2: GraphFormer with only residual beta connection
+        # self.intra_aggs = nn.ModuleList([GraphFormer(self.hid_dim, int(self.hid_dim / 2), self.hid_dim, self.n_heads[0])
+        #                                  for _ in range(self.num_relations)])   # DHAN-4: original version
+        self.intra_aggs = nn.ModuleList([GraphFormer(self.feature_size, self.hid_dim, self.out_dim, self.n_heads[0])
+                                         for _ in range(self.num_relations)])   # DHAN-4_2: GraphFormer with only residual beta connection
 
         # ---------------------Final Linear module-------------------------------
         # self.final_linear = nn.Linear(out_dim, out_dim, bias=True, weight_initializer='glorot')
@@ -111,7 +105,7 @@ class HeteGAT_multi_RL4(nn.Module):
         self.final_linear_list = [self.final_linear for _ in range(self.num_relations)]
 
         # -------------------meta-path aggregation----------------------------------
-        self.simpleAttnLayer = SimpleAttnLayer(self.out_dim, self.hid_dim, time_major=False, return_alphas=True)  # 64, 128
+        self.simpleAttnLayer = SimpleAttnLayer(self.out_dim, self.hid_dim, return_alphas=True)  # 64, 128
 
         self.setup_layers()
         self.reset_parameters()
@@ -126,11 +120,11 @@ class HeteGAT_multi_RL4(nn.Module):
         # for line in self.mlp: line.reset_parameters()
         for bias in self.hop_biases: ones(bias)
 
-    def forward(self, features, biases_mat_list, batch_nodes, adjs, n_ids, device, RL_thresholds):
+    def forward(self, features, batch_nodes, adjs, n_ids, device):
         embed_list = []
         features = features.to(device)
         # multi-head attention in a hierarchical manner
-        for i, (bias) in enumerate(biases_mat_list):
+        for i in range(self.num_relations):
 
             attns = []
             '''
@@ -148,12 +142,12 @@ class HeteGAT_multi_RL4(nn.Module):
             # ----------------1-layer Final Linear----------------------------------------------
             # final_embedding = self.final_linear_list[i](feature_embedding)
 
-            embed_list.append(torch.unsqueeze(final_embedding, dim=1))
+            embed_list.append(final_embedding)
 
-        multi_embed = torch.cat(embed_list, dim=1)   # tensor, (100, 3, 64)
-        # simple attention 合并多个meta-based homo-graph embedding
-        final_embed, att_val = self.simpleAttnLayer(multi_embed, device, RL_thresholds)  # (100, 64)
-        del multi_embed
+        features = torch.stack(embed_list, dim=0)  # (3, 100, 64)
+        features = torch.transpose(features, dim0=0, dim1=1)  # (100, 3, 64)
+        # features = torch.mul(features, RL_thresholds).reshape(len(batch_nodes), -1)  # (100, 192)
+        final_embed = features.reshape(len(batch_nodes), -1)  # (100, 192)
         gc.collect()
 
         return final_embed
