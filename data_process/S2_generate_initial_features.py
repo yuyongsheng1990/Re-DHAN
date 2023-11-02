@@ -118,13 +118,13 @@ print('Time features generated.')
 combined_features = np.concatenate((d_features, t_features), axis=1)
 print('Concatenated document features and time features.')
 
-np.save('../data/offline_embeddings_3days/block_0/combined_features.npy', combined_features)
+np.save('../data/offline_embeddings/block_0/combined_features.npy', combined_features)
 print('Initial features saved.')
 
 # -----------------------------------------------------------------------------
 # load combined features
 # the dimension of combined_feature is 302 in this dataset: document_features-300 + time_features-2
-combined_features = np.load('../data/offline_embeddings_3days/block_0/combined_features.npy')  # (4762, 302)
+combined_features = np.load('../data/offline_embeddings/block_0/combined_features.npy')  # (4762, 302)
 
 # generate test graphs, features, and labels
 offline_save_path = '../data'

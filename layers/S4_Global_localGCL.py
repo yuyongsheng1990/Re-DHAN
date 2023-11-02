@@ -54,15 +54,5 @@ class GlobalLocalGraphContrastiveLoss(nn.Module):
         labels = torch.cat([torch.ones(positive_scores.size(0), 1), torch.zeros(negative_scores.size(0), 1)], dim=0)   # (40000, )
         contrastive_loss = gl_loss_fn(logits, labels)
 
-        # print('----------------------cross_entropy----------------------------------')
-        # # Concatenate global_embeddings and local_embeddings
-        # all_embeddings = torch.cat([global_embeddings, local_embeddings], dim=1)  # 按行拼接, (200, 64); dim=1, 按第一维(列)拼接, (100, 128)
-        # # reset labels value range, otherwise occurs IndexError: target out of bounds
-        # uni_set = torch.unique(labels)
-        # to_set = torch.tensor(list(range(len(uni_set))))
-        # labels_reset = labels.clone().detach()
-        # for from_val, to_val in zip(uni_set, to_set):
-        #     labels_reset = torch.where(labels_reset == from_val, to_val, labels_reset)
-        # contrastive_loss = gl_loss_fn(all_embeddings, labels_reset)
 
         return contrastive_loss

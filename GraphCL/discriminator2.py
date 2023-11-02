@@ -32,20 +32,12 @@ class Discriminator2(nn.Module):
         x_neg_abs = h_neg.norm(dim=1)
 
         sim_pos_matrix = torch.einsum('ik,jk->ij', h_aug, h_pos_2) / torch.einsum('i,j->ij', x_aug_abs, x_pos_abs)
-        sim_pos_matrix = torch.exp(sim_pos_matrix / T)
+        sim_pos_matrix = torch.exp(sim_pos_matrix / T)  # Euclidean distance similarity
         pos_sim = sim_pos_matrix[range(batch_size), range(batch_size)]
         pos_sub = sim_pos_matrix.sum(dim=1).unsqueeze(dim=-1) - pos_sim
         loss_pos = pos_sim / pos_sub  # (100,80)
         loss_pos = - torch.log(loss_pos).mean()   # positive samples similarity get the smaller, the better
 
-        # sim_neg_matrix = torch.einsum('ik,jk->ij', h_aug, h_neg) / torch.einsum('i,j->ij', x_aug_abs, x_neg_abs)
-        # # negative samples similarity get the smaller, the better, 但是可以通过取反1-p操作，将neg_loss转化成pos_loss
-        # sim_neg_matrix = 1 - sim_neg_matrix
-        # sim_neg_matrix = torch.exp(sim_neg_matrix / T)
-        # neg_sim = sim_neg_matrix[range(batch_size)]
-        # neg_sub = sim_neg_matrix.sum(dim=1).unsqueeze(dim=-1) - neg_sim
-        # loss_neg = neg_sim / neg_sub
-        # loss_neg = - torch.log(loss_neg).mean()
 
         loss = loss_pos # + loss_neg
 

@@ -34,7 +34,7 @@ def train_lda(ftrain):
 
 def ldaEmbedding_fn(tran_idx, i):
     load_path = project_path + '/data/raw dataset/'
-    save_path = project_path + '/data/offline_embeddings_3days/block_' + str(i)
+    save_path = project_path + '/data/offline_embeddings/block_' + str(i)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     # load data (68841 tweets, multiclasses filtered)

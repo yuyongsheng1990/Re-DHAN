@@ -42,11 +42,6 @@ class Discriminator(nn.Module):
         # logits = torch.cat((sc_1, sc_2), 1)  # (1,128)
         logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
 
-        # # --------------cosine version-------------------------------
-        # aug_embed, h_pos, h_neg = aug_embed.to(device), h_pos.to(device), h_neg.to(device)
-        # sc_1 = torch.cosine_similarity(aug_embed, h_pos).unsqueeze(dim=1)
-        # sc_2 = torch.cosine_similarity(aug_embed, h_neg).unsqueeze(dim=1)
-        # logits = torch.cat((sc_1, sc_2), 0)  # (1,128)
 
         return logits
 

@@ -12,45 +12,6 @@ from torch.nn import ModuleList
 
 from torch_geometric.nn import GCNConv
 
-'''
-  - PPGCN-1: 利用torch geometric实现GCN on whole graph。2023.10.21，PyG~double GCN，效果贼好，但嵌入到我的ReDHAN model中，最终结果还是很差，为啥呢？
-  - PPGCN-2: 自己构建convolution operation
-'''
-"""
-# print("------------PPGNC-1----------------------------")
-class PPGCN(nn.Module):
-    def __init__(self, feat_dim, hid_dim, out_dim):
-        super(PPGCN, self).__init__()
-        self.conv1 = GCNConv(in_channels=feat_dim, out_channels=hid_dim)
-        self.conv2 = GCNConv(in_channels=hid_dim, out_channels=out_dim)
-
-        # 归一化
-        self.norm = nn.BatchNorm1d(hid_dim)
-        self.norm2 = nn.BatchNorm1d(out_dim)
-        # 激活函数，防止梯度爆炸
-        self.sig = nn.Sigmoid()
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout()
-
-    def forward(self, features, multi_r_data, batch_nodes, device):
-        embed_list = []  # GCN的二维edge_index，注意adj_mx index需要在range [batch_siza, batch_size]，因为是convolution
-        for i, (edge_index) in enumerate(multi_r_data):
-            x, edge_index = features.to(device), edge_index.to(device)  # (4796, 302)
-            x = self.conv1(x, edge_index)  # (4793, 256)
-            x = self.norm(x)
-            x = self.relu(x)
-            x = self.dropout(x)
-            x = self.conv2(x, edge_index)  # (4793, 128)
-            x = self.norm2(x)
-            x = self.relu(x)
-
-            embed_list.append(F.log_softmax(x[batch_nodes], dim=1))  # (100, 128)
-
-        features = torch.stack(embed_list, dim=0)  # (3,100,128)
-        features = torch.transpose(features, dim0=0, dim1=1)  # (100, 3, 128)
-        features = torch.reshape(features, (len(batch_nodes),-1))  # (100,384)
-        return features
-# """
 # """
 # print("------------PPGNC-2----------------------------")
 # model = PPGCN(feat_dim, args.hid_dim, args.out_dim)
