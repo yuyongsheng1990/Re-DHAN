@@ -21,24 +21,24 @@ This repository contains the source code and preprocessed dataset for the **2023
 
 We need to, and torch-geometric packages.  
 1) Uninstall Anaconda torch and its related PyG packages, and install suitable torch with pip order in terminal. For example,  
-- For local computer or laptop, installing torch-cpu version. For example,  
+  - For local computer or laptop, installing torch-cpu version. For example,  
 ```bash
 pip install torch==1.12.0
 ```  
-- For server application, installing torch-cuda version on server. You can check the compatible CUDA version from website [Previous PyTroch Version | PyTorch](https://pytorch.org/get-started/previous-versions/). For example,  
+  - For server application, installing torch-cuda version on server. You can check the compatible CUDA version from website [Previous PyTroch Version | PyTorch](https://pytorch.org/get-started/previous-versions/). For example,  
 ```bash
 pip install torch==1.12.0+cu102
 ```  
 
 2) Install compatible torch-cluster, torch-scatter, torch-sparse, and torch-spline-conv versions by checking the website https://data.pyg.org/whl/index.html.  
-- For torch-1.12.0 cpu version,
+ - For torch-1.12.0 cpu version,
 ```bash
 pip install torch-cluster==1.6.0 -f https://pytorch-geometric.com/whl/torch-1.12.0+cpu.html  
 pip install torch-scatter==2.1.0 -f https://pytorch-geometric.com/whl/torch-1.12.0+cpu.html  
 pip install torch-sparse==0.6.15 -f https://pytorch-geometric.com/whl/torch-1.12.0+cpu.html  
 pip install torch-spline-conv==1.2.1 -f https://pytorch-geometric.com/whl/torch-1.12.0+cpu.html  
 ```  
-- For torch==1.12.0+cu102 CUDA version in server.
+ - For torch==1.12.0+cu102 CUDA version in server.
 ```bash
 pip install torch-cluster==1.6.0 -f https://pytorch-geometric.com/whl/torch-1.12.0+cu102.html
 pip install torch-scatter==2.1.0 -f https://pytorch-geometric.com/whl/torch-1.12.0+cu102.html  
