@@ -19,7 +19,7 @@ This repository contains the source code and preprocessed dataset for the **2023
 
 ### Install PyTorch and PyG(torch-geometric)
 
-We need to, and torch-geometric packages.  
+We need to install torch-geometric packages.  
 1) Uninstall Anaconda torch and its related PyG packages, and install suitable torch with pip order in terminal. For example,  
   - For local computer or laptop, installing torch-cpu version. For example,  
 ```bash
@@ -90,7 +90,7 @@ Please refer to [this document](https://github.com/RingBDStack/KPGNN/blob/main/d
 
 ## Citation
 ---
-Y. Yu, J. Wu and J. Yang, "Social Event Detection with Reinforced Deep Heterogeneous Graph Attention Network," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 463-472, 2023.
+Y. Yu, J. Wu and J. Yang, "Social Event Detection with Reinforced Deep Heterogeneous Graph Attention Network," 2023 IEEE International Conference on Big Data (BigData), Sorrento, Italy, 2023, pp. 463-472, doi: 10.1109/BigData59044.2023.10386153.
 
 ## References
 ---
