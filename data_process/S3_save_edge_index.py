@@ -10,9 +10,9 @@ from scipy.sparse import coo_matrix
 from scipy.sparse import csr_matrix
 from scipy import sparse
 
-import os
-project_path = os.path.abspath(os.path.join(os.getcwd(), "../."))  # # 获取上上级路径
-offline_dataset_path = project_path + '/data'
+# import os
+# project_path = os.path.abspath(os.path.join(os.getcwd(), "../."))  # # 获取上上级路径
+# offline_dataset_path = project_path + '/data'
 
 # relations_ids = ['entity', 'userid', 'word'],分别读取这三个文件
 def sparse_trans(datapath = None):
@@ -32,10 +32,10 @@ def sparse_trans(datapath = None):
         del neighbor, neighbor_idx, loop, self_loop, edge_index_i_j
     return all_edge_index  ## 返回二维矩阵，最后一维是node。 node -> nonzero neighbors
 
-if __name__=='__main__':
-    # save edge_index_[entity, userid, word].pt 文件
-    # 分别返回entity, userid, word这三个 homogeneous adjacency mx的非零邻居索引 non-zero neighbor index
-    relations = ['entity', 'userid', 'word']
-    for relation in relations:
-        relation_edge_index = sparse_trans(os.path.join(offline_dataset_path, 's_m_tid_%s_tid.npz' % relation))  # entity, (2, 487962); userid, (2, 8050); word, (2, 51498)
-        torch.save(relation_edge_index, offline_dataset_path + '/edge_index_%s.pt' % relation)
+# if __name__=='__main__':
+#     # save edge_index_[entity, userid, word].pt 文件
+#     # 分别返回entity, userid, word这三个 homogeneous adjacency mx的非零邻居索引 non-zero neighbor index
+#     relations = ['entity', 'userid', 'word']
+#     for relation in relations:
+#         relation_edge_index = sparse_trans(os.path.join(offline_dataset_path, 's_m_tid_%s_tid.npz' % relation))  # entity, (2, 487962); userid, (2, 8050); word, (2, 51498)
+#         torch.save(relation_edge_index, offline_dataset_path + '/edge_index_%s.pt' % relation)

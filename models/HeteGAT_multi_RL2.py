@@ -173,7 +173,7 @@ class HeteGAT_multi_RL2(nn.Module):
             # -----------------h2 with multi-head attention------------------------------------
             attn_embed_size = int(z1.shape[1] / self.n_heads[-1])  # h_1_quz: 128, out_size: 64, heads: 8
             for n in range(self.n_heads[-1]):
-                attns.append(self.time_atts[i][n](feature_embedding[:, n * attn_embed_size: (n + 1) * attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
+                attns.append(self.time_atts[i][n](z1[:, n * attn_embed_size: (n + 1) * attn_embed_size], batch_bias, device, self.time_lambda, batch_time))
             h_2 = torch.cat(attns, dim=-1)  # (1, 100, 64)
             h2 = torch.squeeze(h_2)
 

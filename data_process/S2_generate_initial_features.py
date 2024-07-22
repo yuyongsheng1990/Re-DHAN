@@ -25,65 +25,47 @@ from scipy import sparse
 
 import torch
 from data_process.S1_construct_message_graphs import construct_offline_dataset
+from data_process.S3_save_edge_index import sparse_trans
 import os
+from time import time
 # project_path = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # # 获取上上级路径
 
 import en_core_web_lg  # spacy提供的预训练语言模型，将文本标记化已生成doc对象
 
 load_path = '../data/raw dataset'  # 相对路径，..表示上上级路径
-result_path = '../result'
-dataset_name = 'Twitter'  # 'MAVEN'
-if dataset_name == 'Twitter':
-    # load dataset
-    p_part1 = load_path + '/68841_tweets_multiclasses_filtered_0722_part1.npy'
-    print(p_part1)
-    p_part2 = load_path + '/68841_tweets_multiclasses_filtered_0722_part2.npy'
-    # Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
-    df_np_part1 = np.load(p_part1, allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
-    df_np_part2 = np.load(p_part2, allow_pickle=True)
-    df = np.concatenate((df_np_part1, df_np_part2),axis=0) # 按行拼接
-    print('loaded data.')
-    df = pd.DataFrame(data=df, columns=['event_id','tweet_id','text','user_id','created_at','user_loc','place_type',
-                                          'place_full_name','place_country_code','hashtags','user_mentions','image_urls',
-                                          'entities','words','filtered_words','sampled_words'])
-    # sort date by time
-    df = df.sort_values(by='created_at').reset_index(drop=True)
-    # append date
-    df['date'] = [d.date() for d in df['created_at']]
-    # # -------------------remove outliers--------------------------------
-    # df_count = df.event_id.value_counts().to_frame()
-    # df_count_2 = df_count[df_count.event_id >= 2].reset_index()
-    # # extract and descend according to time
-    # df = df[df.event_id.isin(df_count_2.index)]
-    # print(df.shape)
-    # print(df.event_id.nunique())
-    # -------------------------------------------------------------------
-    # 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
-    init_day = df.loc[0, 'date']
-    df = df[(df['date'] >= init_day + datetime.timedelta(days=3)) & (
-                df['date'] <= init_day + datetime.timedelta(days=4))].reset_index(drop=True)  # (11971, 18)
-    print(df.shape)  # (4762, 18)
-    print(df.event_id.nunique())  # 57
-    print(df.user_id.nunique())  # 4355
 
-elif dataset_name == 'MAVEN':
-    p_part1 = load_path + '/all_df_words_ents_mids.npy'
-    # Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
-    df_part1 = np.load(p_part1,
-                       allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
-    print('loaded data.')
-    # df = pd.DataFrame(data=df_part1, columns=['document_ids', 'sentence_ids', 'sentences', 'event_type_ids',
-    #                                           'words', 'unique_words', 'entities', 'message_ids'])
-    df = pd.DataFrame(data=df_part1, columns=['user_id', 'sentence_ids', 'text', 'event_id',
-                                              'words', 'filtered_words', 'entities', 'tweet_id'])
-    df['created_at'] = pd.to_datetime('2012-10-10')
-    df['date'] = pd.to_datetime('2012-10-10')
-    df['user_mentions'] = df.user_id.apply(lambda x: [])
-    df['sampled_words'] = df['filtered_words']
-    print('Data converted to dataframe.')
-    print(df.shape)  # (4762, 18)
-    print(df.event_id.nunique())  # 57
-    print(df.user_id.nunique())  # 4355
+# load dataset
+p_part1 = load_path + '/68841_tweets_multiclasses_filtered_0722_part1.npy'
+print(p_part1)
+p_part2 = load_path + '/68841_tweets_multiclasses_filtered_0722_part2.npy'
+# Python 中的 pickle 用于在保存到磁盘文件或从磁盘文件读取之前，对对象进行序列化和反序列化
+df_np_part1 = np.load(p_part1, allow_pickle=True)  # allow_pickle, Allow loading pickled object arrays stored in npy files
+df_np_part2 = np.load(p_part2, allow_pickle=True)
+df = np.concatenate((df_np_part1, df_np_part2),axis=0) # 按行拼接
+print('loaded data.')
+df = pd.DataFrame(data=df, columns=['event_id','tweet_id','text','user_id','created_at','user_loc','place_type',
+                                      'place_full_name','place_country_code','hashtags','user_mentions','image_urls',
+                                      'entities','words','filtered_words','sampled_words'])
+# sort date by time
+df = df.sort_values(by='created_at').reset_index(drop=True)
+# append date
+df['date'] = [d.date() for d in df['created_at']]
+# # -------------------remove outliers--------------------------------
+# df_count = df.event_id.value_counts().to_frame()
+# df_count_2 = df_count[df_count.event_id >= 2].reset_index()
+# # extract and descend according to time
+# df = df[df.event_id.isin(df_count_2.index)]
+# print(df.shape)
+# print(df.event_id.nunique())
+# -------------------------------------------------------------------
+# 因为graph太大，爆了内存，所以取4天的twitter data做demo，后面用nci server
+init_day = df.loc[0, 'date']
+df = df[(df['date'] >= init_day + datetime.timedelta(days=3)) & (
+            df['date'] <= init_day + datetime.timedelta(days=4))].reset_index(drop=True)  # (11971, 18)
+print(df.shape)  # (4762, 18)
+print(df.event_id.nunique())  # 57
+print(df.user_id.nunique())  # 4355
+
 print('Data converted to dataframe.')
 
 # --------------------------------------------------------------------
@@ -118,19 +100,34 @@ print('Time features generated.')
 combined_features = np.concatenate((d_features, t_features), axis=1)
 print('Concatenated document features and time features.')
 
-np.save('../data/offline_embeddings/block_0/combined_features.npy', combined_features)
+# data output path
+data_save_path = f'../data/offline_embeddings/block_{i}'
+if not os.path.exists(data_save_path):
+    os.mkdir(data_save_path)
+np.save(data_save_path + '/combined_features.npy', combined_features)
 print('Initial features saved.')
 
 # -----------------------------------------------------------------------------
 # load combined features
 # the dimension of combined_feature is 302 in this dataset: document_features-300 + time_features-2
-combined_features = np.load('../data/offline_embeddings/block_0/combined_features.npy')  # (4762, 302)
-
+combined_features = np.load(data_save_path + '/combined_features.npy')  # (4762, 302)
 # generate test graphs, features, and labels
-offline_save_path = '../data'
-
-message, all_graph_mins = construct_offline_dataset(df, offline_save_path, combined_features, True)
-with open(offline_save_path + '/node_edge_statistics.txt', 'w') as text_file:
+message, all_graph_mins = construct_offline_dataset(df, data_save_path, combined_features, True)
+with open(data_save_path + '/node_edge_statistics.txt', 'w') as text_file:
     text_file.write(message)
-np.save(offline_save_path + '/all_graph_min.npy', np.asarray(all_graph_mins))
+np.save(data_save_path + '/all_graph_min.npy', np.asarray(all_graph_mins))
 print('Time spent on heterogeneous -> homogeneous graph conversions: ', all_graph_mins)
+
+# ------------------------------------------------------------------------------
+# save edge_index_[entity, userid, word].pt 文件
+# 分别返回entity, userid, word这三个 homogeneous adjacency mx的非零邻居索引 non-zero neighbor index
+start_indexing_time = time()
+relations = ['entity', 'userid', 'word']
+for relation in relations:
+    relation_edge_index = sparse_trans(os.path.join(data_save_path,
+                                                    's_m_tid_%s_tid.npz' % relation))  # entity, (2, 487962); userid, (2, 8050); word, (2, 51498)
+    torch.save(relation_edge_index, data_save_path + '/edge_index_%s.pt' % relation)
+
+mins = (time() - start_indexing_time) / 60
+
+print('Time spent on saving edeg_index of home-graph: ', str(mins))
