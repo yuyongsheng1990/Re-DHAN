@@ -40,7 +40,6 @@ from utils.S4_Evaluation import AverageNonzeroTripletsMetric, evaluate
 
 # from models.HeteGAT_multi import HeteGAT_multi
 from models.HeteGAT_multi_RL2 import HeteGAT_multi_RL2
-sample_size = [-1]
 
 from models.MLP_model import MLP_model
 
@@ -192,6 +191,13 @@ def offline_FinEvent_model(train_i,  # train_i=0
     RL_thresholds = torch.FloatTensor(args.threshold_start0).to(device)  # [[0.2], [0.2], [0.2]]
     if data_name == 'MAVEN':
         RL_thresholds = torch.FloatTensor([[0.2], [0.2]]).to(device)  # MAVEN RL_thresholds, [[0.2], [0.2], [0.2]]
+
+    # sampling size
+    if model_name == 'ReDHAN':
+        sample_size = [-1]
+    elif model_name == 'FinEvent':
+        sample_size = [-1, -1]
+
     # RL_filter means extract limited sorted neighbors based on RL_threshold and neighbor similarity, return filtered node -> neighbor index
     if args.sampler == 'RL_sampler':
         filtered_multi_r_data = RL_neighbor_filter(multi_r_data, RL_thresholds,
